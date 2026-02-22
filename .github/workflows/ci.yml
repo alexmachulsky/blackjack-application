@@ -6,10 +6,12 @@ name: CI
 # Stage 1 — Trigger       : push / PR event (this block)
 # Stage 2 — Build         : Docker images compiled, GHA layer cache written
 # Stage 3 — Unit Tests    : fast, isolated  — pytest -m unit
-# Stage 4 — Static Analysis : ruff + black + bandit  (parallel with Stage 3)
+# Stage 4 — Static Analysis : ruff + black + bandit  (after Stage 3)
 # Stage 5 — Integration   : HTTP routes + DB — pytest -m integration
 # Stage 6 — Package       : Trivy CVE scan + push to GHCR (main/develop only)
 # Stage 7 — Deploy/Notify : staging deploy + GitHub Step Summary  (main/develop)
+#
+# Each stage runs ONLY if the previous stage succeeded (strict linear pipeline).
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: Trigger ─────────────────────────────────────────────────────────
@@ -123,14 +125,13 @@ jobs:
 
     # ── Stage 4: Static Analysis ──────────────────────────────────────────────
     # Code quality gate — ruff (lint) + black (format) + bandit (SAST).
-    # Runs after Build, in parallel with Stage 3 (Unit Tests).
-    # Both Stage 3 and Stage 4 must pass before Stage 5 starts.
+    # Runs only after Stage 3 (Unit Tests) passes.
     # ─────────────────────────────────────────────────────────────────────────
     static-analysis:
         name: "Stage 4 — Static Analysis"
         runs-on: ubuntu-22.04
         timeout-minutes: 10
-        needs: build
+        needs: unit-tests
 
         steps:
             - uses: actions/checkout@v4
@@ -193,13 +194,13 @@ jobs:
 
     # ── Stage 5: Integration Tests ────────────────────────────────────────────
     # Validate HTTP contracts, auth flows, and game routes via TestClient+SQLite.
-    # ONLY runs after BOTH unit-tests AND static-analysis pass.
+    # Runs only after Stage 4 (Static Analysis) passes.
     # ─────────────────────────────────────────────────────────────────────────
     integration-tests:
         name: "Stage 5 — Integration Tests"
         runs-on: ubuntu-22.04
         timeout-minutes: 15
-        needs: [unit-tests, static-analysis]
+        needs: static-analysis
 
         steps:
             - uses: actions/checkout@v4
