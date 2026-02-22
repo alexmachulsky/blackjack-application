@@ -33,12 +33,12 @@ resource "aws_ssm_parameter" "secret_key" {
 module "vpc" {
   source = "../../modules/vpc"
 
-  app_name           = var.app_name
-  environment        = var.environment
-  vpc_cidr           = "10.0.0.0/16"
+  app_name             = var.app_name
+  environment          = var.environment
+  vpc_cidr             = "10.0.0.0/16"
   public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
   private_subnet_cidrs = ["10.0.3.0/24", "10.0.4.0/24"]
-  availability_zones = var.availability_zones
+  availability_zones   = var.availability_zones
 }
 
 # ── Security Groups ───────────────────────────────────────────────────────────
@@ -148,10 +148,10 @@ module "ec2" {
 module "alb" {
   source = "../../modules/alb"
 
-  app_name         = var.app_name
-  environment      = var.environment
-  vpc_id           = module.vpc.vpc_id
+  app_name          = var.app_name
+  environment       = var.environment
+  vpc_id            = module.vpc.vpc_id
   public_subnet_ids = module.vpc.public_subnet_ids
-  alb_sg_id        = module.security_groups.alb_sg_id
-  ec2_instance_id  = module.ec2.instance_id
+  alb_sg_id         = module.security_groups.alb_sg_id
+  ec2_instance_id   = module.ec2.instance_id
 }

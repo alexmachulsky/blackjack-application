@@ -7,9 +7,11 @@
 terraform.tfvars
 *.auto.tfvars
 
-# Terraform working directory
+# Terraform working directory (cache — never commit)
 .terraform/
-.terraform.lock.hcl
+
+# Lock file should be committed for reproducibility (see: terraform.io/language/files/dependency-lock)
+# .terraform.lock.hcl
 
 # Crash logs
 crash.log

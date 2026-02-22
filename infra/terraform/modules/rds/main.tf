@@ -30,7 +30,7 @@ resource "aws_db_instance" "this" {
 
   # Storage
   allocated_storage     = var.allocated_storage
-  max_allocated_storage = 100            # autoscaling upper bound
+  max_allocated_storage = 100 # autoscaling upper bound
   storage_type          = "gp3"
   storage_encrypted     = true
 
@@ -45,9 +45,9 @@ resource "aws_db_instance" "this" {
   publicly_accessible    = false
 
   # Maintenance / backup
-  backup_retention_period   = 7
-  backup_window             = "03:00-04:00"
-  maintenance_window        = "Mon:04:00-Mon:05:00"
+  backup_retention_period    = 7
+  backup_window              = "03:00-04:00"
+  maintenance_window         = "Mon:04:00-Mon:05:00"
   auto_minor_version_upgrade = true
 
   # Staging: skip snapshot on destroy so `terraform destroy` is fast

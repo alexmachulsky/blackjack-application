@@ -1,4 +1,4 @@
-variable "app_name"    { type = string }
+variable "app_name" { type = string }
 variable "environment" { type = string }
 
 variable "subnet_id" {
@@ -28,9 +28,9 @@ variable "iam_instance_profile" {
 }
 
 # ── Values injected into user_data ───────────────────────────────────────────
-variable "db_host"     { type = string }
-variable "db_port"     { type = string }
-variable "db_name"     { type = string }
+variable "db_host" { type = string }
+variable "db_port" { type = string }
+variable "db_name" { type = string }
 variable "db_username" { type = string }
 
 variable "db_password_ssm_path" {
