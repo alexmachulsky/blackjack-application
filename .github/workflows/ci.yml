@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
     # ──────────────────────────────────────────────────────────────
-    # Job 1: Lint backend (ruff) + frontend (eslint)
+    # Job 1: Lint — ruff + black (backend) + build check (frontend)
     # ──────────────────────────────────────────────────────────────
     lint:
         name: Lint
@@ -29,8 +29,7 @@ jobs:
                   cache: pip
 
             - name: Install backend lint deps
-              run: |
-                  pip install ruff black
+              run: pip install ruff black
               working-directory: backend
 
             - name: Ruff lint
@@ -52,17 +51,57 @@ jobs:
               run: npm ci
               working-directory: frontend
 
-            # ESLint is not yet installed — skip if not available; add eslint to package.json to enable
             - name: Frontend build check
               run: npm run build
               working-directory: frontend
 
     # ──────────────────────────────────────────────────────────────
-    # Job 2: Backend unit tests (no Docker, SQLite in-process)
+    # Job 2: SAST — Bandit static security analysis on Python code
+    # Fails the build on HIGH severity issues
+    # ──────────────────────────────────────────────────────────────
+    security-scan:
+        name: Security Scan (SAST)
+        runs-on: ubuntu-latest
+        needs: lint
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Python 3.11
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+                  cache: pip
+
+            - name: Install Bandit
+              run: pip install bandit[toml]
+
+            - name: Run Bandit SAST
+              # -ll = report MEDIUM and HIGH only; -r = recursive; -x = exclude tests
+              # Exit code 1 = issues found → fail the job
+              run: |
+                  bandit -r app/ \
+                    -ll \
+                    -x tests/ \
+                    --format json \
+                    --output bandit-report.json \
+                    || (cat bandit-report.json && exit 1)
+              working-directory: backend
+
+            - name: Upload Bandit report
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: bandit-report
+                  path: backend/bandit-report.json
+
+    # ──────────────────────────────────────────────────────────────
+    # Job 3: Backend unit tests (SQLite in-process — no Docker needed)
     # ──────────────────────────────────────────────────────────────
     test-backend:
         name: Backend Tests
         runs-on: ubuntu-latest
+        needs: lint
 
         steps:
             - uses: actions/checkout@v4
@@ -74,13 +113,13 @@ jobs:
                   cache: pip
 
             - name: Install production + dev deps
-              run: |
-                  pip install -r requirements.txt -r requirements-dev.txt
+              # psycopg2-binary is in requirements.txt but tests run against SQLite.
+              # The DATABASE_URL env var below redirects SQLAlchemy before psycopg2 is touched.
+              run: pip install -r requirements.txt -r requirements-dev.txt
               working-directory: backend
 
             - name: Run pytest with coverage
               env:
-                  # Provide required settings so config.py validation passes in CI
                   DATABASE_URL: sqlite:///./test.db
                   SECRET_KEY: ci-test-secret-key-minimum-32-characters-long
                   ENVIRONMENT: testing
@@ -88,7 +127,8 @@ jobs:
                   pytest tests/ \
                     --cov=app \
                     --cov-report=xml:coverage.xml \
-                    --cov-report=term-missing
+                    --cov-report=term-missing \
+                    -v
               working-directory: backend
 
             - name: Upload coverage report
@@ -99,13 +139,14 @@ jobs:
                   path: backend/coverage.xml
 
     # ──────────────────────────────────────────────────────────────
-    # Job 3: Docker build verification (no push)
-    # Ensures images build cleanly on every PR
+    # Job 4: Docker build + Trivy CVE scan
+    # Runs only after lint, SAST, and tests pass.
+    # Images are built but NOT pushed here (push happens in cd.yml).
     # ──────────────────────────────────────────────────────────────
     docker-build:
-        name: Docker Build
+        name: Docker Build & Scan
         runs-on: ubuntu-latest
-        needs: [lint, test-backend]
+        needs: [security-scan, test-backend]
 
         steps:
             - uses: actions/checkout@v4
@@ -113,21 +154,76 @@ jobs:
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
 
+            # ── Backend ───────────────────────────────────────────
             - name: Build backend image
               uses: docker/build-push-action@v5
               with:
                   context: ./backend
                   push: false
+                  # load=true makes the image available to the local Docker daemon for scanning
+                  load: true
                   tags: blackjack-backend:ci
                   cache-from: type=gha
                   cache-to: type=gha,mode=max
 
+            - name: Trivy scan — backend
+              uses: aquasecurity/trivy-action@master
+              with:
+                  image-ref: blackjack-backend:ci
+                  format: table
+                  # CRITICAL vulnerabilities fail the build; HIGH are reported but allowed
+                  # Change to "CRITICAL,HIGH" to also block on HIGH
+                  exit-code: "1"
+                  severity: CRITICAL
+                  ignore-unfixed: true
+
+            - name: Upload Trivy backend SARIF
+              uses: aquasecurity/trivy-action@master
+              if: always()
+              with:
+                  image-ref: blackjack-backend:ci
+                  format: sarif
+                  output: trivy-backend.sarif
+
+            - name: Upload backend SARIF to GitHub Security tab
+              uses: github/codeql-action/upload-sarif@v3
+              if: always()
+              with:
+                  sarif_file: trivy-backend.sarif
+                  category: trivy-backend
+
+            # ── Frontend ──────────────────────────────────────────
             - name: Build frontend image (production stage)
               uses: docker/build-push-action@v5
               with:
                   context: ./frontend
                   target: production
                   push: false
+                  load: true
                   tags: blackjack-frontend:ci
                   cache-from: type=gha
                   cache-to: type=gha,mode=max
+
+            - name: Trivy scan — frontend
+              uses: aquasecurity/trivy-action@master
+              with:
+                  image-ref: blackjack-frontend:ci
+                  format: table
+                  exit-code: "1"
+                  severity: CRITICAL
+                  ignore-unfixed: true
+
+            - name: Upload Trivy frontend SARIF
+              uses: aquasecurity/trivy-action@master
+              if: always()
+              with:
+                  image-ref: blackjack-frontend:ci
+                  format: sarif
+                  output: trivy-frontend.sarif
+
+            - name: Upload frontend SARIF to GitHub Security tab
+              uses: github/codeql-action/upload-sarif@v3
+              if: always()
+              with:
+                  sarif_file: trivy-frontend.sarif
+                  category: trivy-frontend
