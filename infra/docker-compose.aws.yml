@@ -1,0 +1,30 @@
+version: "3.8"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# AWS deployment override
+#
+# Usage (on the EC2 instance, via user_data or CI deploy):
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.prod.yml \
+#     -f infra/docker-compose.aws.yml \
+#     up -d backend frontend
+#
+# What this file does:
+#   1. Removes the backend → postgres depends_on so Docker Compose doesn't
+#      wait for a local postgres container that won't be started.
+#   2. Assigns the postgres service a profile so it is NEVER started
+#      automatically (RDS is used instead).
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  backend:
+    # Remove the depends_on: postgres from the base compose file.
+    # DATABASE_URL in .env already points to RDS.
+    depends_on: {}
+
+  postgres:
+    # Assigning a named profile prevents this service from starting unless
+    # explicitly requested with `--profile local-only`.
+    profiles:
+      - local-only

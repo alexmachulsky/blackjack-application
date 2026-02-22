@@ -406,26 +406,40 @@ jobs:
               uses: appleboy/ssh-action@v1.0.3
               with:
                   host: ${{ secrets.DEPLOY_HOST }}
-                  username: ${{ secrets.DEPLOY_USER }}
+                  username: ${{ secrets.DEPLOY_USER }}    # ec2-user on Amazon Linux 2023
                   key: ${{ secrets.DEPLOY_SSH_KEY }}
                   script: |
                       set -e
-                      cd ~/blackjack-application
+                      cd /opt/blackjack-application
                       git pull origin ${{ github.ref_name }}
 
-                      export BACKEND_IMAGE=${{ env.BACKEND_IMAGE }}:${{ needs.package.outputs.image_tag }}
-                      export FRONTEND_IMAGE=${{ env.FRONTEND_IMAGE }}:${{ needs.package.outputs.image_tag }}
+                      BACKEND_IMAGE=${{ env.BACKEND_IMAGE }}
+                      FRONTEND_IMAGE=${{ env.FRONTEND_IMAGE }}
+                      IMAGE_TAG=${{ needs.package.outputs.image_tag }}
 
-                      echo "${{ secrets.GHCR_READ_TOKEN }}" | \
-                        docker login ghcr.io -u ${{ github.actor }} --password-stdin
+                      # Pull the specific immutable SHA-tagged images
+                      # GHCR packages on this public repo are publicly pullable
+                      docker pull "$${BACKEND_IMAGE}:$${IMAGE_TAG}"
+                      docker pull "$${FRONTEND_IMAGE}:$${IMAGE_TAG}"
 
-                      docker compose -f docker-compose.prod.yml pull
-                      docker compose -f docker-compose.prod.yml up -d --remove-orphans
+                      # Retag as :latest so docker-compose.yml references resolve
+                      docker tag "$${BACKEND_IMAGE}:$${IMAGE_TAG}" blackjack-application_backend:latest
+                      docker tag "$${FRONTEND_IMAGE}:$${IMAGE_TAG}" blackjack-application_frontend:latest
+
+                      # Start with the AWS overlay:
+                      #   - removes backend→postgres depends_on
+                      #   - prevents the local postgres container from starting (RDS is used)
+                      docker compose \
+                        -f docker-compose.yml \
+                        -f docker-compose.prod.yml \
+                        -f infra/docker-compose.aws.yml \
+                        up -d --remove-orphans backend frontend
+
                       docker image prune -f
 
-                      # Health check — retry for up to 30 s
+                      # Health check via nginx (port 80) — nginx proxies /health to backend
                       for i in $(seq 1 6); do
-                        curl -sf http://localhost:8000/health && break
+                        curl -sf http://localhost/health && break
                         echo "Health check attempt $i/6 failed — retrying in 5s"
                         sleep 5
                       done
