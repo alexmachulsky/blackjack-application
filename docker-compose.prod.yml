@@ -1,0 +1,52 @@
+version: "3.8"
+
+# ──────────────────────────────────────────────────────────────
+# PRODUCTION compose overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Requires a populated .env with production values
+# ──────────────────────────────────────────────────────────────
+
+services:
+  backend:
+    # Production: no source-code volume, no --reload, full production image
+    volumes: []
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: WARNING
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
+    restart: always
+
+  frontend:
+    # Production: use the full multi-stage build (nginx stage)
+    build:
+      target: production
+    volumes: []
+    command: []
+    ports:
+      - "80:80"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+    restart: always
+
+  postgres:
+    environment:
+      # In production, override credentials via CI secrets — not in this file
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    restart: always

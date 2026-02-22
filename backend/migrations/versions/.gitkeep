@@ -1,0 +1,4 @@
+# Migration versions are generated here via:
+#   alembic revision --autogenerate -m "description"
+# or:
+#   make migration

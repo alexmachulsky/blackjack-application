@@ -1,0 +1,96 @@
+version: "3.8"
+
+# ──────────────────────────────────────────────────────────────
+# DEVELOPMENT compose file
+# Usage: docker compose up
+# Secrets are loaded from .env (see .env.example)
+# ──────────────────────────────────────────────────────────────
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: blackjack-postgres
+    env_file:
+      - .env
+    environment:
+      # Credentials come from .env — override here uses the env var with a dev default
+      POSTGRES_USER: ${POSTGRES_USER:-blackjack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-blackjack}
+      POSTGRES_DB: ${POSTGRES_DB:-blackjack}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - blackjack-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blackjack"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: blackjack-backend
+    env_file:
+      - .env
+    environment:
+      # Override DATABASE_URL to use the Docker service name (not localhost)
+      DATABASE_URL: postgresql://blackjack:blackjack@postgres:5432/blackjack
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - blackjack-net
+    # Dev-only: mount source for hot-reload
+    volumes:
+      - ./backend:/app
+    # Dev-only: --reload flag; production overrides this via docker-compose.prod.yml
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # Dev build uses the builder stage only (no nginx)
+      target: builder
+    container_name: blackjack-frontend
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    networks:
+      - blackjack-net
+    # Dev-only: mount source for Vite hot-reload
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    command: npm run dev
+    restart: unless-stopped
+
+networks:
+  blackjack-net:
+    driver: bridge
+
+volumes:
+  postgres_data:

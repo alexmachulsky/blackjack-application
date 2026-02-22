@@ -1,0 +1,20 @@
+# Development and testing dependencies
+# Install with: pip install -r requirements-dev.txt
+# (also install requirements.txt first)
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+httpx==0.26.0
+
+# Linting & formatting
+ruff==0.2.1
+black==24.1.1
+
+# Type checking
+mypy==1.8.0
+types-passlib==1.7.7.20240106
+
+# DB for tests
+# SQLite is used in conftest — no extra dep needed

@@ -1,0 +1,31 @@
+# Exclude everything not needed in the backend Docker image
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Dev/test files
+tests/
+requirements-dev.txt
+pytest.ini
+.env
+*.env
+
+# Version control
+.git/
+.gitignore
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Docs
+*.md
