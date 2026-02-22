@@ -1,4 +1,3 @@
-import pytest
 from app.services.deck import Deck, Card, Rank, Suit
 
 
@@ -23,7 +22,7 @@ def test_deck_reset():
     for _ in range(10):
         deck.deal()
     assert deck.remaining() == 42
-    
+
     # Reset
     deck.reset()
     assert deck.remaining() == 52

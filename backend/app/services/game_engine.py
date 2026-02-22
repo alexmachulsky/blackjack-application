@@ -233,11 +233,11 @@ class GameEngine:
         # Split aces rule: no further hitting on either hand
         if split_rank == Rank.ACE:
             self.split_aces = True
-            logger.info("Split aces detected — both hands auto-stand after one card each")
+            logger.info(
+                "Split aces detected — both hands auto-stand after one card each"
+            )
 
-        logger.info(
-            f"Split complete. Hand 0: {original_hand}, Hand 1: {new_hand}"
-        )
+        logger.info(f"Split complete. Hand 0: {original_hand}, Hand 1: {new_hand}")
         return card1, card2
 
     # ------------------------------------------------------------------
@@ -314,24 +314,27 @@ class GameEngine:
             else:
                 status = "active"
 
-            hand_states.append({
-                "cards": [{"rank": c.rank.value, "suit": c.suit.value} for c in hand.cards],
-                "value": hand.value(),
-                "status": status,
-                # Double-down eligible only for the current hand with 2 cards
-                "can_double_down": (
-                    len(hand.cards) == 2
-                    and i == self.current_hand_index
-                    and not self.game_over
-                ),
-            })
+            hand_states.append(
+                {
+                    "cards": [
+                        {"rank": c.rank.value, "suit": c.suit.value} for c in hand.cards
+                    ],
+                    "value": hand.value(),
+                    "status": status,
+                    # Double-down eligible only for the current hand with 2 cards
+                    "can_double_down": (
+                        len(hand.cards) == 2
+                        and i == self.current_hand_index
+                        and not self.game_over
+                    ),
+                }
+            )
 
         current_hand = self.player_hand
         return {
             # --- backward-compat keys ---
             "player_hand": [
-                {"rank": c.rank.value, "suit": c.suit.value}
-                for c in current_hand.cards
+                {"rank": c.rank.value, "suit": c.suit.value} for c in current_hand.cards
             ],
             "player_value": current_hand.value(),
             "dealer_hand": [

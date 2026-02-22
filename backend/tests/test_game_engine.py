@@ -7,7 +7,7 @@ determine_winner() now returns List[Tuple[str, float]] (one entry per hand).
 Existing tests use results[0] to unpack — this keeps them backward-compatible
 with the Phase 2 multi-hand refactor while preserving all original assertions.
 """
-import pytest
+
 from app.services.game_engine import GameEngine, Hand
 from app.services.deck import Card, Rank, Suit
 
@@ -15,6 +15,7 @@ from app.services.deck import Card, Rank, Suit
 # ===========================================================================
 # Hand tests (unchanged behaviour)
 # ===========================================================================
+
 
 def test_hand_value_simple():
     """Test simple hand value calculation"""
@@ -30,7 +31,7 @@ def test_hand_value_with_ace_soft():
     hand.add_card(Card(Rank.ACE, Suit.HEARTS))
     hand.add_card(Card(Rank.SIX, Suit.SPADES))
     assert hand.value() == 17
-    assert hand.is_soft() == True
+    assert hand.is_soft()
 
 
 def test_hand_value_with_ace_hard():
@@ -55,7 +56,7 @@ def test_hand_blackjack():
     hand = Hand()
     hand.add_card(Card(Rank.ACE, Suit.HEARTS))
     hand.add_card(Card(Rank.KING, Suit.SPADES))
-    assert hand.is_blackjack() == True
+    assert hand.is_blackjack()
     assert hand.value() == 21
 
 
@@ -66,7 +67,7 @@ def test_hand_blackjack_false():
     hand.add_card(Card(Rank.SIX, Suit.SPADES))
     hand.add_card(Card(Rank.TEN, Suit.CLUBS))
     assert hand.value() == 21
-    assert hand.is_blackjack() == False
+    assert not hand.is_blackjack()
 
 
 def test_hand_bust():
@@ -75,13 +76,14 @@ def test_hand_bust():
     hand.add_card(Card(Rank.TEN, Suit.HEARTS))
     hand.add_card(Card(Rank.KING, Suit.SPADES))
     hand.add_card(Card(Rank.FIVE, Suit.CLUBS))
-    assert hand.is_bust() == True
+    assert hand.is_bust()
     assert hand.value() == 25
 
 
 # ===========================================================================
 # GameEngine core tests (updated to use results[0] for new return type)
 # ===========================================================================
+
 
 def test_game_engine_initial_deal():
     """Test initial card deal"""
@@ -190,6 +192,7 @@ def test_determine_winner_player_wins():
 # Phase 1: Double Down tests
 # ===========================================================================
 
+
 def test_can_double_down_initial_deal():
     """should return True when player has exactly 2 cards after initial deal"""
     engine = GameEngine()
@@ -256,6 +259,7 @@ def test_double_down_payout_calculation():
 # ===========================================================================
 # Phase 2: Split tests
 # ===========================================================================
+
 
 def test_can_split_matching_ranks():
     """should return True when player has two cards of the same rank"""
@@ -404,7 +408,7 @@ def test_split_both_bust():
     bust_hand = Hand()
     bust_hand.add_card(Card(Rank.KING, Suit.HEARTS))
     bust_hand.add_card(Card(Rank.QUEEN, Suit.SPADES))
-    bust_hand.add_card(Card(Rank.FOUR, Suit.CLUBS))   # bust: 24
+    bust_hand.add_card(Card(Rank.FOUR, Suit.CLUBS))  # bust: 24
     engine.player_hands.append(bust_hand)
     engine.is_split = True
 

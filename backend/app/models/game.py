@@ -14,14 +14,18 @@ class Game(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     status = Column(String, default="active", nullable=False)  # active, finished
     bet_amount = Column(Float, nullable=False)
-    result = Column(String, nullable=True)  # win, lose, push, blackjack (comma-sep for split)
+    result = Column(
+        String, nullable=True
+    )  # win, lose, push, blackjack (comma-sep for split)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     # Phase 2: track whether this game involved a split
     is_split = Column(Boolean, default=False, nullable=False)
 
     # Relationships
     user = relationship("User", back_populates="games")
-    cards = relationship("GameCard", back_populates="game", cascade="all, delete-orphan")
+    cards = relationship(
+        "GameCard", back_populates="game", cascade="all, delete-orphan"
+    )
 
 
 class GameCard(Base):

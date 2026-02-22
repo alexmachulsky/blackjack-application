@@ -22,6 +22,7 @@ active_games: Dict[str, GameEngine] = {}
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_active_game(
     game_id: str,
     user_id,
@@ -32,10 +33,14 @@ def _get_active_game(
     and return both the DB record and the in-memory engine.
     Raises HTTPException on any validation failure.
     """
-    game = db.query(Game).filter(
-        Game.id == game_id,
-        Game.user_id == user_id,
-    ).first()
+    game = (
+        db.query(Game)
+        .filter(
+            Game.id == game_id,
+            Game.user_id == user_id,
+        )
+        .first()
+    )
 
     if not game:
         raise HTTPException(
@@ -67,14 +72,16 @@ def _save_player_card(
     db: Session,
 ):
     """Persist a single player card to game_cards table."""
-    db.add(GameCard(
-        game_id=game_id,
-        owner="player",
-        card_rank=card.rank.value,
-        card_suit=card.suit.value,
-        order_index=order_index,
-        hand_index=hand_index,
-    ))
+    db.add(
+        GameCard(
+            game_id=game_id,
+            owner="player",
+            card_rank=card.rank.value,
+            card_suit=card.suit.value,
+            order_index=order_index,
+            hand_index=hand_index,
+        )
+    )
 
 
 def _save_dealer_cards(game_id, engine: GameEngine, db: Session, initial_count: int):
@@ -82,14 +89,16 @@ def _save_dealer_cards(game_id, engine: GameEngine, db: Session, initial_count: 
     for idx, card in enumerate(
         engine.dealer_hand.cards[initial_count:], start=initial_count
     ):
-        db.add(GameCard(
-            game_id=game_id,
-            owner="dealer",
-            card_rank=card.rank.value,
-            card_suit=card.suit.value,
-            order_index=idx,
-            hand_index=0,  # dealer always hand_index 0
-        ))
+        db.add(
+            GameCard(
+                game_id=game_id,
+                owner="dealer",
+                card_rank=card.rank.value,
+                card_suit=card.suit.value,
+                order_index=idx,
+                hand_index=0,  # dealer always hand_index 0
+            )
+        )
     db.commit()
 
 
@@ -157,7 +166,9 @@ def _finish_game(
     user.balance += total_payout
 
     # Primary result string: single value for normal games, comma-joined for split
-    primary_result = result_strings[0] if len(result_strings) == 1 else ",".join(result_strings)
+    primary_result = (
+        result_strings[0] if len(result_strings) == 1 else ",".join(result_strings)
+    )
 
     game.status = "finished"
     game.result = primary_result
@@ -169,9 +180,13 @@ def _finish_game(
 
     # Log outcome
     log_record = logging.LogRecord(
-        name="game", level=logging.INFO,
-        pathname="", lineno=0, msg="Game finished",
-        args=(), exc_info=None,
+        name="game",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="Game finished",
+        args=(),
+        exc_info=None,
     )
     log_record.user_id = str(user.id)
     log_record.game_id = str(game.id)
@@ -206,6 +221,7 @@ def _finish_game(
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
 
 @router.post("/start", response_model=GameState)
 def start_game(
@@ -247,22 +263,28 @@ def start_game(
         _save_player_card(card, game.id, hand_index=0, order_index=idx, db=db)
 
     for idx, card in enumerate(engine.dealer_hand.cards):
-        db.add(GameCard(
-            game_id=game.id,
-            owner="dealer",
-            card_rank=card.rank.value,
-            card_suit=card.suit.value,
-            order_index=idx,
-            hand_index=0,
-        ))
+        db.add(
+            GameCard(
+                game_id=game.id,
+                owner="dealer",
+                card_rank=card.rank.value,
+                card_suit=card.suit.value,
+                order_index=idx,
+                hand_index=0,
+            )
+        )
 
     db.commit()
 
     # Log start
     log_record = logging.LogRecord(
-        name="game", level=logging.INFO,
-        pathname="", lineno=0, msg="Game started",
-        args=(), exc_info=None,
+        name="game",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="Game started",
+        args=(),
+        exc_info=None,
     )
     log_record.user_id = str(current_user.id)
     log_record.game_id = str(game.id)
@@ -301,12 +323,16 @@ def hit(
     card = engine.player_hit()
 
     # Count existing player cards for this hand to determine order_index
-    existing_count = len([
-        c for c in game.cards
-        if c.owner == "player" and c.hand_index == engine.current_hand_index
-    ])
+    existing_count = len(
+        [
+            c
+            for c in game.cards
+            if c.owner == "player" and c.hand_index == engine.current_hand_index
+        ]
+    )
     _save_player_card(
-        card, game.id,
+        card,
+        game.id,
         hand_index=engine.current_hand_index,
         order_index=existing_count,
         db=db,
@@ -363,6 +389,7 @@ def stand(
 # Phase 1: Double Down
 # ---------------------------------------------------------------------------
 
+
 @router.post("/double-down", response_model=GameState)
 def double_down(
     action: GameAction,
@@ -398,12 +425,16 @@ def double_down(
     card = engine.player_double_down()
 
     # Persist the new player card
-    existing_count = len([
-        c for c in game.cards
-        if c.owner == "player" and c.hand_index == engine.current_hand_index
-    ])
+    existing_count = len(
+        [
+            c
+            for c in game.cards
+            if c.owner == "player" and c.hand_index == engine.current_hand_index
+        ]
+    )
     _save_player_card(
-        card, game.id,
+        card,
+        game.id,
         hand_index=engine.current_hand_index,
         order_index=existing_count,
         db=db,
@@ -420,6 +451,7 @@ def double_down(
 # ---------------------------------------------------------------------------
 # Phase 2: Split
 # ---------------------------------------------------------------------------
+
 
 @router.post("/split", response_model=GameState)
 def split(
@@ -457,14 +489,14 @@ def split(
     # Persist cards: after split, hand 0 has [original_card, card1]
     #                             hand 1 has [split_card, card2]
     # The original cards are already in DB; we only need to save the two new dealt cards.
-    existing_h0 = len([
-        c for c in game.cards if c.owner == "player" and c.hand_index == 0
-    ])
+    existing_h0 = len(
+        [c for c in game.cards if c.owner == "player" and c.hand_index == 0]
+    )
     _save_player_card(card1, game.id, hand_index=0, order_index=existing_h0, db=db)
 
-    existing_h1 = len([
-        c for c in game.cards if c.owner == "player" and c.hand_index == 1
-    ])
+    existing_h1 = len(
+        [c for c in game.cards if c.owner == "player" and c.hand_index == 1]
+    )
     # Also persist the split card (the one moved to hand 1 from DB perspective)
     split_card = engine.player_hands[1].cards[0]  # original card moved to hand 1
     _save_player_card(split_card, game.id, hand_index=1, order_index=existing_h1, db=db)
@@ -486,6 +518,7 @@ def split(
 # Read-only
 # ---------------------------------------------------------------------------
 
+
 @router.get("/{game_id}", response_model=GameState)
 def get_game(
     game_id: str,
@@ -494,10 +527,14 @@ def get_game(
 ):
     """Get game state by ID (reconstructed from DB)."""
 
-    game = db.query(Game).filter(
-        Game.id == game_id,
-        Game.user_id == current_user.id,
-    ).first()
+    game = (
+        db.query(Game)
+        .filter(
+            Game.id == game_id,
+            Game.user_id == current_user.id,
+        )
+        .first()
+    )
 
     if not game:
         raise HTTPException(
@@ -529,17 +566,23 @@ def get_game(
         dealer_hand.add_card(Card(Rank(dc.card_rank), Suit(dc.card_suit)))
 
     if game.status == "active":
-        dealer_hand_display = [CardSchema(rank=dealer_cards[0].card_rank, suit=dealer_cards[0].card_suit)]
+        dealer_hand_display = [
+            CardSchema(rank=dealer_cards[0].card_rank, suit=dealer_cards[0].card_suit)
+        ]
         dealer_value = 0
     else:
-        dealer_hand_display = [CardSchema(rank=c.card_rank, suit=c.card_suit) for c in dealer_cards]
+        dealer_hand_display = [
+            CardSchema(rank=c.card_rank, suit=c.card_suit) for c in dealer_cards
+        ]
         dealer_value = dealer_hand.value()
 
     return GameState(
         game_id=str(game.id),
         status=game.status,
         bet_amount=game.bet_amount,
-        player_hand=[CardSchema(rank=c.card_rank, suit=c.card_suit) for c in primary_player_cards],
+        player_hand=[
+            CardSchema(rank=c.card_rank, suit=c.card_suit) for c in primary_player_cards
+        ],
         player_value=player_hand.value(),
         dealer_hand=dealer_hand_display,
         dealer_value=dealer_value,
@@ -548,4 +591,3 @@ def get_game(
         new_balance=current_user.balance,
         is_split=game.is_split,
     )
-

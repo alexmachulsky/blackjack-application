@@ -3,6 +3,7 @@ Alembic environment configuration.
 Reads DATABASE_URL from the application settings so there is a single
 source of truth — no URL duplication between app config and migrations.
 """
+
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context

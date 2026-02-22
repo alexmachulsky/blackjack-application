@@ -17,8 +17,10 @@ class GameStart(BaseModel):
 # Phase 2: Per-hand state for split games
 # ---------------------------------------------------------------------------
 
+
 class HandState(BaseModel):
     """Represents the state of a single hand in a (possibly split) game."""
+
     cards: List[CardSchema]
     value: int
     # active | stood | bust | blackjack
@@ -29,6 +31,7 @@ class HandState(BaseModel):
 # ---------------------------------------------------------------------------
 # Core game state — backward-compat fields kept, new fields optional/defaulted
 # ---------------------------------------------------------------------------
+
 
 class GameState(BaseModel):
     game_id: uuid.UUID
