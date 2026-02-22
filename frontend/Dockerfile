@@ -13,7 +13,11 @@ RUN npm run build
 
 # ── Stage 2: serve ────────────────────────────────────────────────────────────
 # Final image is a lean Nginx image — no Node.js in production
-FROM nginx:1.25-alpine AS production
+FROM nginx:1.27-alpine AS production
+
+# Upgrade all Alpine packages to pick up latest security patches.
+# Keeps the image clean of known CVEs at build time.
+RUN apk upgrade --no-cache
 
 # Copy built static assets from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
