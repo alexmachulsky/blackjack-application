@@ -1,114 +1,168 @@
 name: CI
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 7-Stage CI Pipeline
+#
+# Stage 1 — Trigger       : push / PR event (this block)
+# Stage 2 — Build         : Docker images compiled, GHA layer cache written
+# Stage 3 — Unit Tests    : fast, isolated  — pytest -m unit
+# Stage 4 — Static Analysis : ruff + black + bandit  (parallel with Stage 3)
+# Stage 5 — Integration   : HTTP routes + DB — pytest -m integration
+# Stage 6 — Package       : Trivy CVE scan + push to GHCR (main/develop only)
+# Stage 7 — Deploy/Notify : staging deploy + GitHub Step Summary  (main/develop)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Stage 1: Trigger ─────────────────────────────────────────────────────────
 on:
     push:
         branches: [main, develop, "feature/**", "fix/**"]
     pull_request:
         branches: [main, develop]
 
-# Principle of least privilege — every token starts read-only.
-# Jobs that need more declare their own permissions block below.
 permissions:
-    contents: read
+    contents: read   # principle of least privilege — jobs escalate only what they need
 
-# Cancel in-progress runs for the same branch/PR to save CI minutes.
-# cancel-in-progress: false on main to avoid interrupting a release build.
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+env:
+    REGISTRY: ghcr.io
+    BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/blackjack-backend
+    FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/blackjack-frontend
+    PYTHON_VERSION: "3.11"
+    NODE_VERSION: "20"
+
 jobs:
-    # ──────────────────────────────────────────────────────────────
-    # Job 1a: Backend lint — ruff + black
-    # Runs in parallel with lint-frontend for faster feedback.
-    # ──────────────────────────────────────────────────────────────
-    lint-backend:
-        name: Lint — Backend
-        runs-on: ubuntu-22.04   # pin runner; ubuntu-latest is non-deterministic
-        timeout-minutes: 10
+
+    # ── Stage 2: Build ────────────────────────────────────────────────────────
+    # Validate both Dockerfiles compile cleanly and write GHA layer cache.
+    # push: false, load: false — validates without storing the image locally.
+    # Stage 6 (package) rebuilds from this cache in seconds.
+    # ─────────────────────────────────────────────────────────────────────────
+    build:
+        name: "Stage 2 — Build"
+        runs-on: ubuntu-22.04
+        timeout-minutes: 15
 
         steps:
             - uses: actions/checkout@v4
 
-            - name: Set up Python 3.11
-              uses: actions/setup-python@v5
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Build backend image (cache only)
+              uses: docker/build-push-action@v5
               with:
-                  python-version: "3.11"
+                  context: ./backend
+                  push: false
+                  load: false
+                  tags: ${{ env.BACKEND_IMAGE }}:build-check
+                  cache-from: type=gha,scope=backend
+                  cache-to: type=gha,mode=max,scope=backend
+
+            - name: Build frontend image (cache only)
+              uses: docker/build-push-action@v5
+              with:
+                  context: ./frontend
+                  target: production
+                  push: false
+                  load: false
+                  tags: ${{ env.FRONTEND_IMAGE }}:build-check
+                  cache-from: type=gha,scope=frontend
+                  cache-to: type=gha,mode=max,scope=frontend
+
+    # ── Stage 3: Unit Tests ───────────────────────────────────────────────────
+    # Fast, isolated — no DB, no HTTP.  pytest -m unit
+    # Runs after Build (if Dockerfile breaks, no point testing).
+    # Runs in parallel with Stage 4 (Static Analysis).
+    # ─────────────────────────────────────────────────────────────────────────
+    unit-tests:
+        name: "Stage 3 — Unit Tests"
+        runs-on: ubuntu-22.04
+        timeout-minutes: 10
+        needs: build
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
                   cache: pip
 
             - name: Upgrade pip
               run: pip install --upgrade pip
 
-            - name: Install lint deps
-              run: pip install "ruff==0.2.1" "black==24.1.1"
+            - name: Install deps
+              run: pip install -r requirements.txt -r requirements-dev.txt
+              working-directory: backend
 
+            - name: Run unit tests
+              env:
+                  DATABASE_URL: sqlite:///./test.db
+                  SECRET_KEY: ci-test-secret-key-minimum-32-characters-long
+                  ENVIRONMENT: testing
+                  PYTHONDONTWRITEBYTECODE: "1"
+                  PYTHONUNBUFFERED: "1"
+              run: |
+                  pytest tests/ -m unit \
+                    --cov=app \
+                    --cov-report=xml:coverage-unit.xml \
+                    --cov-report=term-missing \
+                    -v
+              working-directory: backend
+
+            - name: Upload unit test coverage
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: coverage-unit
+                  path: backend/coverage-unit.xml
+                  retention-days: 30
+
+    # ── Stage 4: Static Analysis ──────────────────────────────────────────────
+    # Code quality gate — ruff (lint) + black (format) + bandit (SAST).
+    # Runs after Build, in parallel with Stage 3 (Unit Tests).
+    # Both Stage 3 and Stage 4 must pass before Stage 5 starts.
+    # ─────────────────────────────────────────────────────────────────────────
+    static-analysis:
+        name: "Stage 4 — Static Analysis"
+        runs-on: ubuntu-22.04
+        timeout-minutes: 10
+        needs: build
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+                  cache: pip
+
+            - name: Upgrade pip
+              run: pip install --upgrade pip
+
+            - name: Install analysis tools
+              run: pip install "ruff==0.2.1" "black==24.1.1" "bandit[toml]==1.7.7"
+
+            # ── Ruff ──────────────────────────────────────────────────────────
             - name: Ruff lint
               run: ruff check .
               working-directory: backend
 
+            # ── Black ─────────────────────────────────────────────────────────
             - name: Black format check
               run: black --check .
               working-directory: backend
 
-    # ──────────────────────────────────────────────────────────────
-    # Job 1b: Frontend lint — build check (no ESLint yet; add when ready)
-    # Runs in parallel with lint-backend.
-    # ──────────────────────────────────────────────────────────────
-    lint-frontend:
-        name: Lint — Frontend
-        runs-on: ubuntu-22.04
-        timeout-minutes: 10
-
-        steps:
-            - uses: actions/checkout@v4
-
-            - name: Set up Node 20
-              uses: actions/setup-node@v4
-              with:
-                  node-version: "20"   # Node 18 is EOL since Apr 2025
-                  cache: npm
-                  cache-dependency-path: frontend/package-lock.json
-
-            - name: Install deps
-              run: npm ci
-              working-directory: frontend
-
-            - name: Frontend build check
-              run: npm run build
-              working-directory: frontend
-
-    # ──────────────────────────────────────────────────────────────
-    # Job 2: SAST — Bandit static security analysis
-    # Runs after backend lint passes.
-    # Fails on MEDIUM or HIGH severity findings.
-    # ──────────────────────────────────────────────────────────────
-    security-scan:
-        name: Security Scan (SAST)
-        runs-on: ubuntu-22.04
-        timeout-minutes: 10
-        needs: lint-backend
-
-        steps:
-            - uses: actions/checkout@v4
-
-            - name: Set up Python 3.11
-              uses: actions/setup-python@v5
-              with:
-                  python-version: "3.11"
-                  cache: pip
-
-            - name: Upgrade pip
-              run: pip install --upgrade pip
-
-            - name: Install Bandit
-              run: pip install "bandit[toml]==1.7.7"
-
-            # Text report → readable in CI log; exits non-zero if issues found → fails job
-            - name: Run Bandit SAST
+            # ── Bandit ────────────────────────────────────────────────────────
+            # Text step: human-readable log — exits non-zero on MEDIUM/HIGH finds
+            - name: Bandit SAST
               run: bandit -r app/ -ll -x tests/
               working-directory: backend
 
-            # JSON report for artifact archive — --exit-zero so this step never blocks
+            # JSON artifact — always saved so findings are reviewable even on pass
             - name: Save Bandit JSON report
               if: always()
               run: bandit -r app/ -ll -x tests/ --exit-zero --format json --output bandit-report.json
@@ -122,36 +176,47 @@ jobs:
                   path: backend/bandit-report.json
                   retention-days: 30
 
-    # ──────────────────────────────────────────────────────────────
-    # Job 3: Backend unit tests — SQLite in-process (no Docker needed)
-    # Runs after backend lint passes, in parallel with security-scan.
-    # ──────────────────────────────────────────────────────────────
-    test-backend:
-        name: Backend Tests
+            # ── Frontend build lint ───────────────────────────────────────────
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+                  cache-dependency-path: frontend/package-lock.json
+
+            - name: Install frontend deps
+              run: npm ci
+              working-directory: frontend
+
+            - name: Frontend build check
+              run: npm run build
+              working-directory: frontend
+
+    # ── Stage 5: Integration Tests ────────────────────────────────────────────
+    # Validate HTTP contracts, auth flows, and game routes via TestClient+SQLite.
+    # ONLY runs after BOTH unit-tests AND static-analysis pass.
+    # ─────────────────────────────────────────────────────────────────────────
+    integration-tests:
+        name: "Stage 5 — Integration Tests"
         runs-on: ubuntu-22.04
         timeout-minutes: 15
-        needs: lint-backend
+        needs: [unit-tests, static-analysis]
 
         steps:
             - uses: actions/checkout@v4
 
-            - name: Set up Python 3.11
-              uses: actions/setup-python@v5
+            - uses: actions/setup-python@v5
               with:
-                  python-version: "3.11"
+                  python-version: ${{ env.PYTHON_VERSION }}
                   cache: pip
 
             - name: Upgrade pip
               run: pip install --upgrade pip
 
-            - name: Install production + dev deps
-              # psycopg2-binary is installed but never imported:
-              # DATABASE_URL=sqlite:// makes SQLAlchemy use its SQLite dialect,
-              # so the psycopg2 module is never loaded during tests.
+            - name: Install deps
               run: pip install -r requirements.txt -r requirements-dev.txt
               working-directory: backend
 
-            - name: Run pytest with coverage
+            - name: Run integration tests
               env:
                   DATABASE_URL: sqlite:///./test.db
                   SECRET_KEY: ci-test-secret-key-minimum-32-characters-long
@@ -159,98 +224,124 @@ jobs:
                   PYTHONDONTWRITEBYTECODE: "1"
                   PYTHONUNBUFFERED: "1"
               run: |
-                  pytest tests/ \
+                  pytest tests/ -m integration \
                     --cov=app \
-                    --cov-report=xml:coverage.xml \
+                    --cov-report=xml:coverage-integration.xml \
                     --cov-report=term-missing \
                     -v
               working-directory: backend
 
-            - name: Upload coverage report
+            - name: Upload integration test coverage
               uses: actions/upload-artifact@v4
               if: always()
               with:
-                  name: backend-coverage
-                  path: backend/coverage.xml
+                  name: coverage-integration
+                  path: backend/coverage-integration.xml
                   retention-days: 30
 
-    # ──────────────────────────────────────────────────────────────
-    # Job 4: Docker build + Trivy CVE scan
-    # Runs only after ALL prior jobs pass (security, tests, and frontend lint).
-    # Images are built but NOT pushed here — push happens in cd.yml.
+    # ── Stage 6: Package (Artifact) ───────────────────────────────────────────
+    # Build images from GHA cache (fast), run Trivy CVE scan, then push to GHCR.
+    # Push is conditional: only on main and develop branches.
+    #   Tags: sha-<short_commit>  ← immutable reference
+    #         latest              ← convenience pointer
     #
-    # Requires security-events: write to upload SARIF to GitHub Security tab.
-    # ──────────────────────────────────────────────────────────────
-    docker-build:
-        name: Docker Build & Scan
+    # Requires security-events: write for SARIF upload to GitHub Security tab.
+    # ─────────────────────────────────────────────────────────────────────────
+    package:
+        name: "Stage 6 — Package"
         runs-on: ubuntu-22.04
         timeout-minutes: 20
-        needs: [security-scan, test-backend, lint-frontend]
+        needs: integration-tests
 
         permissions:
             contents: read
-            security-events: write   # required for github/codeql-action/upload-sarif
+            packages: write          # push to GHCR
+            security-events: write   # upload Trivy SARIF to GitHub Security tab
+
+        outputs:
+            image_tag: ${{ steps.meta.outputs.tag }}
 
         steps:
             - uses: actions/checkout@v4
 
+            - name: Compute image tag
+              id: meta
+              run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
 
-            # ── Backend ───────────────────────────────────────────
+            - name: Log in to GHCR
+              # Login only when we will actually push (saves auth round-trip on PRs)
+              if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+              uses: docker/login-action@v3
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            # ── Backend ───────────────────────────────────────────────────────
             - name: Build backend image
               uses: docker/build-push-action@v5
               with:
                   context: ./backend
-                  push: false
-                  load: true   # exposes image to local daemon so Trivy can scan it
-                  tags: blackjack-backend:ci
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
+                  push: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
+                  load: true   # always load locally so Trivy can scan
+                  tags: |
+                      ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
+                      ${{ env.BACKEND_IMAGE }}:latest
+                  labels: |
+                      org.opencontainers.image.revision=${{ github.sha }}
+                      org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+                  cache-from: type=gha,scope=backend
+                  cache-to: type=gha,mode=max,scope=backend
 
-            # Blocking scan — fails job on CRITICAL CVEs so the build never promotes
             - name: Trivy scan — backend (blocking)
               uses: aquasecurity/trivy-action@0.24.0
               with:
-                  image-ref: blackjack-backend:ci
+                  image-ref: ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
                   format: table
                   exit-code: "1"
                   severity: CRITICAL
                   ignore-unfixed: true
 
-            # Non-blocking SARIF scan — runs even if the table scan above failed
             - name: Trivy scan — backend (SARIF)
               uses: aquasecurity/trivy-action@0.24.0
               if: always()
               with:
-                  image-ref: blackjack-backend:ci
+                  image-ref: ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
                   format: sarif
                   output: trivy-backend.sarif
                   ignore-unfixed: true
 
-            - name: Upload backend SARIF to GitHub Security tab
+            - name: Upload backend SARIF
               uses: github/codeql-action/upload-sarif@v3
               if: always()
               with:
                   sarif_file: trivy-backend.sarif
                   category: trivy-backend
 
-            # ── Frontend ──────────────────────────────────────────
+            # ── Frontend ──────────────────────────────────────────────────────
             - name: Build frontend image
               uses: docker/build-push-action@v5
               with:
                   context: ./frontend
                   target: production
-                  push: false
+                  push: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
                   load: true
-                  tags: blackjack-frontend:ci
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
+                  tags: |
+                      ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
+                      ${{ env.FRONTEND_IMAGE }}:latest
+                  labels: |
+                      org.opencontainers.image.revision=${{ github.sha }}
+                      org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+                  cache-from: type=gha,scope=frontend
+                  cache-to: type=gha,mode=max,scope=frontend
 
             - name: Trivy scan — frontend (blocking)
               uses: aquasecurity/trivy-action@0.24.0
               with:
-                  image-ref: blackjack-frontend:ci
+                  image-ref: ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
                   format: table
                   exit-code: "1"
                   severity: CRITICAL
@@ -260,14 +351,98 @@ jobs:
               uses: aquasecurity/trivy-action@0.24.0
               if: always()
               with:
-                  image-ref: blackjack-frontend:ci
+                  image-ref: ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
                   format: sarif
                   output: trivy-frontend.sarif
                   ignore-unfixed: true
 
-            - name: Upload frontend SARIF to GitHub Security tab
+            - name: Upload frontend SARIF
               uses: github/codeql-action/upload-sarif@v3
               if: always()
               with:
                   sarif_file: trivy-frontend.sarif
                   category: trivy-frontend
+
+    # ── Stage 7: Deploy to Staging + Notify ──────────────────────────────────
+    # Automatically deploy to the staging environment after all gates pass.
+    # Only runs on main and develop — never on feature/fix branches.
+    #
+    # Environment secrets (GitHub repo → Settings → Environments → staging):
+    #   DEPLOY_HOST      — SSH hostname / IP of staging server
+    #   DEPLOY_USER      — SSH username
+    #   DEPLOY_SSH_KEY   — Private key (PEM, no passphrase)
+    #   GHCR_READ_TOKEN  — GitHub PAT with read:packages scope
+    # ─────────────────────────────────────────────────────────────────────────
+    deploy-staging:
+        name: "Stage 7 — Deploy to Staging"
+        runs-on: ubuntu-22.04
+        timeout-minutes: 15
+        needs: package
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+
+        environment:
+            name: staging
+            url: ${{ vars.STAGING_URL }}
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Deploy to staging via SSH
+              uses: appleboy/ssh-action@v1.0.3
+              with:
+                  host: ${{ secrets.DEPLOY_HOST }}
+                  username: ${{ secrets.DEPLOY_USER }}
+                  key: ${{ secrets.DEPLOY_SSH_KEY }}
+                  script: |
+                      set -e
+                      cd ~/blackjack-application
+                      git pull origin ${{ github.ref_name }}
+
+                      export BACKEND_IMAGE=${{ env.BACKEND_IMAGE }}:${{ needs.package.outputs.image_tag }}
+                      export FRONTEND_IMAGE=${{ env.FRONTEND_IMAGE }}:${{ needs.package.outputs.image_tag }}
+
+                      echo "${{ secrets.GHCR_READ_TOKEN }}" | \
+                        docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+                      docker compose -f docker-compose.prod.yml pull
+                      docker compose -f docker-compose.prod.yml up -d --remove-orphans
+                      docker image prune -f
+
+                      # Health check — retry for up to 30 s
+                      for i in $(seq 1 6); do
+                        curl -sf http://localhost:8000/health && break
+                        echo "Health check attempt $i/6 failed — retrying in 5s"
+                        sleep 5
+                      done
+
+            # ── Notify via GitHub Step Summary ────────────────────────────────
+            # Zero-dependency: visible in the Actions run UI for every deploy.
+            # Replace / extend with Slack/Teams webhook when ready.
+            - name: Notify — write deploy summary
+              if: always()
+              run: |
+                  STATUS="${{ job.status }}"
+                  TAG="${{ needs.package.outputs.image_tag }}"
+                  BRANCH="${{ github.ref_name }}"
+                  ACTOR="${{ github.actor }}"
+                  SHA="${{ github.sha }}"
+
+                  if [ "$STATUS" = "success" ]; then
+                    ICON="✅"
+                    HEADLINE="Staging deploy succeeded"
+                  else
+                    ICON="❌"
+                    HEADLINE="Staging deploy FAILED"
+                  fi
+
+                  cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+                  ## $ICON $HEADLINE
+
+                  | Field       | Value |
+                  |-------------|-------|
+                  | Branch      | \`$BRANCH\` |
+                  | Commit      | \`${SHA::7}\` |
+                  | Image tag   | \`$TAG\` |
+                  | Triggered by | $ACTOR |
+                  | Status      | $STATUS |
+                  EOF

@@ -1,4 +1,7 @@
+import pytest
 from app.services.deck import Deck, Card, Rank, Suit
+
+pytestmark = pytest.mark.unit
 
 
 def test_deck_creation():

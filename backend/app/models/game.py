@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import Boolean, Column, String, Float, DateTime, ForeignKey, Integer
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -10,8 +10,8 @@ from app.core.database import Base
 class Game(Base):
     __tablename__ = "games"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False)
     status = Column(String, default="active", nullable=False)  # active, finished
     bet_amount = Column(Float, nullable=False)
     result = Column(
@@ -31,8 +31,8 @@ class Game(Base):
 class GameCard(Base):
     __tablename__ = "game_cards"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    game_id = Column(UUID(as_uuid=True), ForeignKey("games.id"), nullable=False)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    game_id = Column(Uuid(as_uuid=True), ForeignKey("games.id"), nullable=False)
     owner = Column(String, nullable=False)  # player, dealer
     card_rank = Column(String, nullable=False)
     card_suit = Column(String, nullable=False)

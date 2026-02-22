@@ -8,8 +8,11 @@ Existing tests use results[0] to unpack — this keeps them backward-compatible
 with the Phase 2 multi-hand refactor while preserving all original assertions.
 """
 
+import pytest
 from app.services.game_engine import GameEngine, Hand
 from app.services.deck import Card, Rank, Suit
+
+pytestmark = pytest.mark.unit
 
 
 # ===========================================================================
