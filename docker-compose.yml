@@ -9,7 +9,6 @@ version: "3.8"
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: blackjack-postgres
     env_file:
       - .env
     environment:
@@ -34,12 +33,12 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: blackjack-backend
     env_file:
       - .env
     environment:
-      # Override DATABASE_URL to use the Docker service name (not localhost)
-      DATABASE_URL: postgresql://blackjack:blackjack@postgres:5432/blackjack
+      # Build DATABASE_URL from individual env vars so any .env-supplied
+      # POSTGRES_PASSWORD is respected (avoids credential mismatch in CI).
+      DATABASE_URL: postgresql://${POSTGRES_USER:-blackjack}:${POSTGRES_PASSWORD:-blackjack}@postgres:5432/${POSTGRES_DB:-blackjack}
     ports:
       - "8001:8000"
     depends_on:
@@ -72,7 +71,6 @@ services:
       dockerfile: Dockerfile
       # Dev build uses the builder stage only (no nginx)
       target: builder
-    container_name: blackjack-frontend
     env_file:
       - .env
     ports:
