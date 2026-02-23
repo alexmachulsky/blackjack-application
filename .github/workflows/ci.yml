@@ -140,7 +140,7 @@ jobs:
               run: |
                   pip install pip-audit==2.7.3 --quiet
                   pip-audit --requirement requirements.txt --format json \
-                    --output pip-audit-report.json --exit-zero
+                    --output pip-audit-report.json || true
               working-directory: backend
 
             - name: Dep audit — pip-audit (gate)
