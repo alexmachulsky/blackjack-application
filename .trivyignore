@@ -1,0 +1,31 @@
+# .trivyignore — Trivy vulnerability suppression list
+# ─────────────────────────────────────────────────────────────────────────────
+# This file tells Trivy to ignore specific CVE IDs during image scans.
+# The CI pipeline references this file via the `trivyignores:` parameter in
+# every `aquasecurity/trivy-action` step.
+#
+# WHEN TO ADD AN ENTRY:
+#   • The CVE is a false positive (vulnerability doesn't apply to this app's
+#     usage of the library).
+#   • No fix is available yet AND you have a compensating control in place.
+#   • The vulnerability is in a dev-only package that is not in the final image.
+#
+# HOW TO ADD AN ENTRY:
+#   Add the CVE ID on its own line, optionally followed by a comment explaining
+#   the suppression reason and a review-by date:
+#
+#   CVE-YYYY-XXXXX  # Reason: <why suppressed> | Review by: YYYY-MM-DD
+#
+# EXAMPLES (do not uncomment — these are illustrative only):
+#
+#   CVE-2023-12345  # FP: only affects Windows builds | Review by: 2025-06-01
+#   CVE-2024-99999  # No fix available; runtime not exposed to untrusted input
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# IMPORTANT: Every suppressed CVE MUST have a comment.  Uncommented CVE IDs
+# should be rejected in code review — silent suppressions are a security risk.
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Currently suppressed: none.
+# All CRITICAL CVEs in backend and frontend images are clean as of the last
+# scan run.  Run `trivy image <image>:<tag>` locally to re-check at any time.

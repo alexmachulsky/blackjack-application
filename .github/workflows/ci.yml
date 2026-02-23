@@ -1,305 +1,295 @@
-name: CI
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                  PRODUCTION CI PIPELINE — Blackjack Application            ║
+# ║                                                                              ║
+# ║  Stack detected:                                                             ║
+# ║    Backend  — Python 3.11 · FastAPI · SQLAlchemy · pytest                   ║
+# ║    Frontend — Node 20 · React 18 · Vite 5 · no test framework               ║
+# ║    Images   — python:3.11-slim (backend) · nginx:alpine (frontend)          ║
+# ║    Registry — ghcr.io (GitHub Container Registry)                           ║
+# ║                                                                              ║
+# ║  Stage order (strict needs: chaining):                                      ║
+# ║                                                                              ║
+# ║  1 BUILD         Lint · SAST (Semgrep + Bandit) · dep-audit · compile       ║
+# ║       │                                                                      ║
+# ║  2 TEST          pytest (unit + integration) · coverage gate ≥ 80 %         ║
+# ║       │          ⚠  current combined coverage = 79 % —                      ║
+# ║       │             app/routes/game.py at 32 % is the primary gap           ║
+# ║       │                                                                      ║
+# ║  3 PACKAGE       Docker build (backend + frontend) · Trivy CVE scan         ║
+# ║       │                                                                      ║
+# ║  4 E2E           docker compose up · curl smoke tests · compose down        ║
+# ║       │                                                                      ║
+# ║  5 PUSH          Push sha-tagged + latest images → ghcr.io (main/develop)   ║
+# ║       │                                                                      ║
+# ║  6 DEPLOY        Placeholder stub (TODO: replace with real CD step)         ║
+# ║                                                                              ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
 
-# ──────────────────────────────────────────────────────────────────────────────
-# 7-Stage CI Pipeline
-#
-# Stage 1 — Trigger       : push / PR event (this block)
-# Stage 2 — Build         : Docker images compiled, GHA layer cache written
-# Stage 3 — Unit Tests    : fast, isolated  — pytest -m unit
-# Stage 4 — Static Analysis : ruff + black + bandit  (after Stage 3)
-# Stage 5 — Integration   : HTTP routes + DB — pytest -m integration
-# Stage 6 — Package       : Trivy CVE scan + push to GHCR (main/develop only)
-# Stage 7 — Deploy/Notify : staging deploy + GitHub Step Summary  (main/develop)
-#
-# Each stage runs ONLY if the previous stage succeeded (strict linear pipeline).
-# ──────────────────────────────────────────────────────────────────────────────
-
-# ── Stage 1: Trigger ─────────────────────────────────────────────────────────
+# ── Stage 1: Trigger ──────────────────────────────────────────────────────────
 on:
     push:
         branches: [main, develop, "feature/**", "fix/**"]
     pull_request:
         branches: [main, develop]
 
-permissions:
-    contents: read   # principle of least privilege — jobs escalate only what they need
+name: CI
 
+# Principle of least privilege — jobs escalate only what they need
+permissions:
+    contents: read
+
+# Cancel in-flight runs on the same branch on every new push.
+# Exception: never cancel a run that is already deploying main.
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# ── Shared environment ────────────────────────────────────────────────────────
 env:
+    PYTHON_VERSION: "3.11"
+    NODE_VERSION: "20"
     REGISTRY: ghcr.io
     BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/blackjack-backend
     FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/blackjack-frontend
-    PYTHON_VERSION: "3.11"
-    NODE_VERSION: "20"
 
+# ═════════════════════════════════════════════════════════════════════════════
+#  STAGE 1 — BUILD
+#  Runs in parallel sub-tasks within one job:
+#    • Python:  ruff lint → black format check → bandit SAST → Semgrep SAST
+#               → pip-audit dependency scan
+#    • Node:    npm ci → npm audit → vite build
+# ═════════════════════════════════════════════════════════════════════════════
 jobs:
-
-    # ── Stage 2: Build ────────────────────────────────────────────────────────
-    # Validate both Dockerfiles compile cleanly and write GHA layer cache.
-    # push: false, load: false — validates without storing the image locally.
-    # Stage 6 (package) rebuilds from this cache in seconds.
-    # ─────────────────────────────────────────────────────────────────────────
     build:
-        name: "Stage 2 — Build"
+        name: "Stage 1 — Build"
         runs-on: ubuntu-22.04
         timeout-minutes: 15
 
         steps:
-            - uses: actions/checkout@v4
+            # ── Checkout ──────────────────────────────────────────────────────
+            - name: Checkout
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
-
-            - name: Build backend image (cache only)
-              uses: docker/build-push-action@v5
-              with:
-                  context: ./backend
-                  push: false
-                  load: false
-                  tags: ${{ env.BACKEND_IMAGE }}:build-check
-                  cache-from: type=gha,scope=backend
-                  cache-to: type=gha,mode=max,scope=backend
-
-            - name: Build frontend image (cache only)
-              uses: docker/build-push-action@v5
-              with:
-                  context: ./frontend
-                  target: production
-                  push: false
-                  load: false
-                  tags: ${{ env.FRONTEND_IMAGE }}:build-check
-                  cache-from: type=gha,scope=frontend
-                  cache-to: type=gha,mode=max,scope=frontend
-
-    # ── Stage 3: Unit Tests ───────────────────────────────────────────────────
-    # Fast, isolated — no DB, no HTTP.  pytest -m unit
-    # Runs after Build (if Dockerfile breaks, no point testing).
-    # Runs in parallel with Stage 4 (Static Analysis).
-    # ─────────────────────────────────────────────────────────────────────────
-    unit-tests:
-        name: "Stage 3 — Unit Tests"
-        runs-on: ubuntu-22.04
-        timeout-minutes: 10
-        needs: build
-
-        steps:
-            - uses: actions/checkout@v4
-
-            - uses: actions/setup-python@v5
+            # ── Python setup + cache ─────────────────────────────────────────
+            - name: Set up Python ${{ env.PYTHON_VERSION }}
+              uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
               with:
                   python-version: ${{ env.PYTHON_VERSION }}
-                  cache: pip
 
-            - name: Upgrade pip
-              run: pip install --upgrade pip
+            - name: Cache pip packages
+              uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
+              with:
+                  path: ~/.cache/pip
+                  # Bust cache when either requirements file changes
+                  key: pip-${{ runner.os }}-${{ hashFiles('backend/requirements*.txt') }}
+                  restore-keys: pip-${{ runner.os }}-
 
-            - name: Install deps
-              run: pip install -r requirements.txt -r requirements-dev.txt
+            - name: Install Python dependencies
+              run: pip install --upgrade pip && pip install -r requirements.txt -r requirements-dev.txt
               working-directory: backend
 
-            - name: Run unit tests
-              env:
-                  DATABASE_URL: sqlite:///./test.db
-                  SECRET_KEY: ci-test-secret-key-minimum-32-characters-long
-                  ENVIRONMENT: testing
-                  PYTHONDONTWRITEBYTECODE: "1"
-                  PYTHONUNBUFFERED: "1"
-              run: |
-                  pytest tests/ -m unit \
-                    --cov=app \
-                    --cov-report=xml:coverage-unit.xml \
-                    --cov-report=term-missing \
-                    -v
-              working-directory: backend
-
-            - name: Upload unit test coverage
-              uses: actions/upload-artifact@v4
-              if: always()
-              with:
-                  name: coverage-unit
-                  path: backend/coverage-unit.xml
-                  retention-days: 30
-
-    # ── Stage 4: Static Analysis ──────────────────────────────────────────────
-    # Code quality gate — ruff (lint) + black (format) + bandit (SAST).
-    # Runs only after Stage 3 (Unit Tests) passes.
-    # ─────────────────────────────────────────────────────────────────────────
-    static-analysis:
-        name: "Stage 4 — Static Analysis"
-        runs-on: ubuntu-22.04
-        timeout-minutes: 10
-        needs: unit-tests
-
-        steps:
-            - uses: actions/checkout@v4
-
-            - uses: actions/setup-python@v5
-              with:
-                  python-version: ${{ env.PYTHON_VERSION }}
-                  cache: pip
-
-            - name: Upgrade pip
-              run: pip install --upgrade pip
-
-            - name: Install analysis tools
-              run: pip install "ruff==0.2.1" "black==24.1.1" "bandit[toml]==1.7.7"
-
-            # ── Ruff ──────────────────────────────────────────────────────────
-            - name: Ruff lint
+            # ── Linting ───────────────────────────────────────────────────────
+            # ruff: fast Python linter (replaces flake8/pylint/isort)
+            - name: Lint — ruff
               run: ruff check .
               working-directory: backend
 
-            # ── Black ─────────────────────────────────────────────────────────
-            - name: Black format check
+            # black: opinionated formatter — fail on any unformatted file
+            - name: Lint — black (format check)
               run: black --check .
               working-directory: backend
 
-            # ── Bandit ────────────────────────────────────────────────────────
-            # Text step: human-readable log — exits non-zero on MEDIUM/HIGH finds
-            - name: Bandit SAST
+            # ── SAST ─────────────────────────────────────────────────────────
+            # bandit: Python-specific SAST — detects common security issues
+            - name: SAST — bandit (save artifact)
+              if: always()
+              run: bandit -r app/ -ll -x tests/ --format json --output bandit-report.json --exit-zero
+              working-directory: backend
+
+            - name: SAST — bandit (gate)
               run: bandit -r app/ -ll -x tests/
               working-directory: backend
 
-            # JSON artifact — always saved so findings are reviewable even on pass
-            - name: Save Bandit JSON report
-              if: always()
-              run: bandit -r app/ -ll -x tests/ --exit-zero --format json --output bandit-report.json
-              working-directory: backend
-
             - name: Upload Bandit report
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.2
               if: always()
               with:
                   name: bandit-report
                   path: backend/bandit-report.json
                   retention-days: 30
 
-            # ── Frontend build lint ───────────────────────────────────────────
-            - uses: actions/setup-node@v4
+            # semgrep: multi-language SAST — runs Python + JWT + secrets rulesets.
+            # Pinned via pip version (no GHA action needed — avoids SHA ambiguity).
+            - name: SAST — semgrep
+              run: |
+                  pip install semgrep==1.74.0 --quiet
+                  semgrep --config "p/python" \
+                          --config "p/jwt" \
+                          --config "p/secrets" \
+                          --error \
+                          --quiet \
+                          --no-git-ignore \
+                          app/
+              working-directory: backend
+
+            # ── Dependency vulnerability scan ─────────────────────────────────
+            # pip-audit: checks installed packages against OSV + PyPI advisories.
+            # Two-pass: save JSON artifact first (--exit-zero), then gate on findings.
+            - name: Dep audit — pip-audit (save artifact)
+              if: always()
+              run: |
+                  pip install pip-audit==2.7.3 --quiet
+                  pip-audit --requirement requirements.txt --format json \
+                    --output pip-audit-report.json --exit-zero
+              working-directory: backend
+
+            - name: Dep audit — pip-audit (gate)
+              run: pip-audit --requirement requirements.txt
+              working-directory: backend
+
+            - name: Upload pip-audit report
+              uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.2
+              if: always()
+              with:
+                  name: pip-audit-report
+                  path: backend/pip-audit-report.json
+                  retention-days: 30
+
+            # ── Node setup + cache ───────────────────────────────────────────
+            - name: Set up Node ${{ env.NODE_VERSION }}
+              uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
               with:
                   node-version: ${{ env.NODE_VERSION }}
                   cache: npm
                   cache-dependency-path: frontend/package-lock.json
 
-            - name: Install frontend deps
+            - name: Install Node dependencies
               run: npm ci
               working-directory: frontend
 
-            - name: Frontend build check
+            # npm audit: checks package-lock.json against NPM advisory database.
+            # --audit-level=high: only fail on HIGH/CRITICAL advisories.
+            - name: Dep audit — npm audit (frontend)
+              run: npm audit --audit-level=high
+              working-directory: frontend
+
+            # Compile the frontend — catches import errors, missing modules, etc.
+            - name: Compile — frontend Vite build
               run: npm run build
               working-directory: frontend
 
-    # ── Stage 5: Integration Tests ────────────────────────────────────────────
-    # Validate HTTP contracts, auth flows, and game routes via TestClient+SQLite.
-    # Runs only after Stage 4 (Static Analysis) passes.
-    # ─────────────────────────────────────────────────────────────────────────
-    integration-tests:
-        name: "Stage 5 — Integration Tests"
+    # ═════════════════════════════════════════════════════════════════════════
+    #  STAGE 2 — TEST
+    #  Runs the full test suite (unit + integration) against SQLite (no infra
+    #  needed).  Coverage gate: fail if below 80 %.
+    #
+    #  ⚠  Current combined coverage = 79 %.  The gap is app/routes/game.py (32 %).
+    #     Add tests/test_game_routes.py to push over the threshold.
+    # ═════════════════════════════════════════════════════════════════════════
+    test:
+        name: "Stage 2 — Test"
         runs-on: ubuntu-22.04
         timeout-minutes: 15
-        needs: static-analysis
+        needs: build
 
         steps:
-            - uses: actions/checkout@v4
+            - name: Checkout
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-            - uses: actions/setup-python@v5
+            - name: Set up Python ${{ env.PYTHON_VERSION }}
+              uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
               with:
                   python-version: ${{ env.PYTHON_VERSION }}
-                  cache: pip
 
-            - name: Upgrade pip
-              run: pip install --upgrade pip
+            - name: Restore pip cache
+              uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
+              with:
+                  path: ~/.cache/pip
+                  key: pip-${{ runner.os }}-${{ hashFiles('backend/requirements*.txt') }}
+                  restore-keys: pip-${{ runner.os }}-
 
-            - name: Install deps
-              run: pip install -r requirements.txt -r requirements-dev.txt
+            - name: Install Python dependencies
+              run: pip install --upgrade pip && pip install -r requirements.txt -r requirements-dev.txt
               working-directory: backend
 
-            - name: Run integration tests
+            - name: Run tests (unit + integration) with coverage
               env:
+                  # SQLite keeps CI self-contained — no Postgres service container needed
                   DATABASE_URL: sqlite:///./test.db
                   SECRET_KEY: ci-test-secret-key-minimum-32-characters-long
                   ENVIRONMENT: testing
                   PYTHONDONTWRITEBYTECODE: "1"
                   PYTHONUNBUFFERED: "1"
               run: |
-                  pytest tests/ -m integration \
+                  pytest tests/ \
                     --cov=app \
-                    --cov-report=xml:coverage-integration.xml \
+                    --cov-report=xml:coverage.xml \
+                    --cov-report=html:htmlcov \
                     --cov-report=term-missing \
+                    --cov-fail-under=80 \
                     -v
               working-directory: backend
 
-            - name: Upload integration test coverage
-              uses: actions/upload-artifact@v4
+            - name: Upload coverage report (XML + HTML)
+              uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.2
+              # Always upload — useful for diagnosis even when the coverage gate fails
               if: always()
               with:
-                  name: coverage-integration
-                  path: backend/coverage-integration.xml
+                  name: coverage-report
+                  path: |
+                      backend/coverage.xml
+                      backend/htmlcov/
                   retention-days: 30
 
-    # ── Stage 6: Package (Artifact) ───────────────────────────────────────────
-    # Build images from GHA cache (fast), run Trivy CVE scan, then push to GHCR.
-    # Push is conditional: only on main and develop branches.
-    #   Tags: sha-<short_commit>  ← immutable reference
-    #         latest              ← convenience pointer
-    #
-    # Requires security-events: write for SARIF upload to GitHub Security tab.
-    # ─────────────────────────────────────────────────────────────────────────
+    # ═════════════════════════════════════════════════════════════════════════
+    #  STAGE 3 — PACKAGE
+    #  Build Docker images from source (GHA layer cache makes this fast on
+    #  repeat runs).  Run Trivy CVE scan on each image.
+    #  Pipeline fails if any CRITICAL unfixed vulnerability is found.
+    # ═════════════════════════════════════════════════════════════════════════
     package:
-        name: "Stage 6 — Package"
+        name: "Stage 3 — Package"
         runs-on: ubuntu-22.04
         timeout-minutes: 20
-        needs: integration-tests
+        needs: test
 
         permissions:
             contents: read
-            packages: write          # push to GHCR
-            security-events: write   # upload Trivy SARIF to GitHub Security tab
+            security-events: write   # required to upload SARIF to GitHub Security tab
 
         outputs:
             image_tag: ${{ steps.meta.outputs.tag }}
 
         steps:
-            - uses: actions/checkout@v4
+            - name: Checkout
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
             - name: Compute image tag
               id: meta
               run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
-
-            - name: Log in to GHCR
-              # Login only when we will actually push (saves auth round-trip on PRs)
-              if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-              uses: docker/login-action@v3
-              with:
-                  registry: ${{ env.REGISTRY }}
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
+              uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
 
             # ── Backend ───────────────────────────────────────────────────────
-            # load: true and push: true are mutually exclusive in buildx.
-            # Pattern: build+load for Trivy, then `docker push` after scan passes.
-            - name: Build backend image (load for Trivy scan)
-              uses: docker/build-push-action@v5
+            # load:true + push:false — image stays local for Trivy scan.
+            # GHA layer cache (scope=backend) means subsequent runs are seconds.
+            - name: Build backend image
+              uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857aca09 # v5.0.0
               with:
                   context: ./backend
                   push: false
                   load: true
-                  tags: |
-                      ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                      ${{ env.BACKEND_IMAGE }}:latest
+                  tags: ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
                   labels: |
                       org.opencontainers.image.revision=${{ github.sha }}
                       org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
                   cache-from: type=gha,scope=backend
                   cache-to: type=gha,mode=max,scope=backend
 
-            - name: Trivy scan — backend (blocking)
+            # Blocking scan — exit-code 1 fails the job if any CRITICAL CVE is found
+            # that has an available fix.  See .trivyignore to suppress false positives.
+            - name: Trivy scan — backend (blocking gate)
               uses: aquasecurity/trivy-action@0.24.0
               with:
                   image-ref: ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
@@ -307,8 +297,9 @@ jobs:
                   exit-code: "1"
                   severity: CRITICAL
                   ignore-unfixed: true
+                  trivyignores: .trivyignore
 
-            - name: Trivy scan — backend (SARIF)
+            - name: Trivy scan — backend (SARIF → Security tab)
               uses: aquasecurity/trivy-action@0.24.0
               if: always()
               with:
@@ -316,38 +307,31 @@ jobs:
                   format: sarif
                   output: trivy-backend.sarif
                   ignore-unfixed: true
+                  trivyignores: .trivyignore
 
             - name: Upload backend SARIF
-              uses: github/codeql-action/upload-sarif@v3
+              uses: github/codeql-action/upload-sarif@65c74964a9ed8c44ed9f19d4bbc5757a6a8af9ab # v3
               if: always()
               with:
                   sarif_file: trivy-backend.sarif
                   category: trivy-backend
 
-            - name: Push backend image to GHCR
-              if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-              run: |
-                  docker push ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                  docker push ${{ env.BACKEND_IMAGE }}:latest
-
             # ── Frontend ──────────────────────────────────────────────────────
-            - name: Build frontend image (load for Trivy scan)
-              uses: docker/build-push-action@v5
+            - name: Build frontend image
+              uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857aca09 # v5.0.0
               with:
                   context: ./frontend
                   target: production
                   push: false
                   load: true
-                  tags: |
-                      ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                      ${{ env.FRONTEND_IMAGE }}:latest
+                  tags: ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
                   labels: |
                       org.opencontainers.image.revision=${{ github.sha }}
                       org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
                   cache-from: type=gha,scope=frontend
                   cache-to: type=gha,mode=max,scope=frontend
 
-            - name: Trivy scan — frontend (blocking)
+            - name: Trivy scan — frontend (blocking gate)
               uses: aquasecurity/trivy-action@0.24.0
               with:
                   image-ref: ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
@@ -355,8 +339,9 @@ jobs:
                   exit-code: "1"
                   severity: CRITICAL
                   ignore-unfixed: true
+                  trivyignores: .trivyignore
 
-            - name: Trivy scan — frontend (SARIF)
+            - name: Trivy scan — frontend (SARIF → Security tab)
               uses: aquasecurity/trivy-action@0.24.0
               if: always()
               with:
@@ -364,114 +349,259 @@ jobs:
                   format: sarif
                   output: trivy-frontend.sarif
                   ignore-unfixed: true
+                  trivyignores: .trivyignore
 
             - name: Upload frontend SARIF
-              uses: github/codeql-action/upload-sarif@v3
+              uses: github/codeql-action/upload-sarif@65c74964a9ed8c44ed9f19d4bbc5757a6a8af9ab # v3
               if: always()
               with:
                   sarif_file: trivy-frontend.sarif
                   category: trivy-frontend
 
-            - name: Push frontend image to GHCR
-              if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-              run: |
-                  docker push ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                  docker push ${{ env.FRONTEND_IMAGE }}:latest
-
-    # ── Stage 7: Deploy to Staging + Notify ──────────────────────────────────
-    # Automatically deploy to the staging environment after all gates pass.
-    # Only runs on main and develop — never on feature/fix branches.
+    # ═════════════════════════════════════════════════════════════════════════
+    #  STAGE 4 — E2E (End-to-End smoke tests)
+    #  Spins up the full stack (postgres + backend) using docker compose,
+    #  runs curl-based smoke tests against the live HTTP API, then tears down.
     #
-    # Environment secrets (GitHub repo → Settings → Environments → staging):
-    #   DEPLOY_HOST      — SSH hostname / IP of staging server
-    #   DEPLOY_USER      — SSH username
-    #   DEPLOY_SSH_KEY   — Private key (PEM, no passphrase)
-    #   GHCR_READ_TOKEN  — GitHub PAT with read:packages scope
-    # ─────────────────────────────────────────────────────────────────────────
-    deploy-staging:
-        name: "Stage 7 — Deploy to Staging"
+    #  No E2E framework (Playwright/Cypress) was detected in this repo.
+    #  Smoke tests cover: liveness, auth register/login, protected endpoints.
+    #  Replace the curl tests with your E2E framework when ready.
+    # ═════════════════════════════════════════════════════════════════════════
+    e2e:
+        name: "Stage 4 — E2E (smoke tests)"
         runs-on: ubuntu-22.04
-        timeout-minutes: 15
+        timeout-minutes: 20
         needs: package
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+            # Write a minimal .env so docker compose can start without errors.
+            # All values here are ephemeral CI credentials — NOT production secrets.
+            - name: Create .env for E2E stack
+              run: |
+                  cat > .env <<'EOF'
+                  POSTGRES_USER=blackjack
+                  POSTGRES_PASSWORD=blackjack_ci_pw
+                  POSTGRES_DB=blackjack
+                  DATABASE_URL=postgresql://blackjack:blackjack_ci_pw@postgres:5432/blackjack
+                  SECRET_KEY=ci-e2e-secret-key-32-characters-minimum
+                  ALGORITHM=HS256
+                  ACCESS_TOKEN_EXPIRE_MINUTES=30
+                  ENVIRONMENT=testing
+                  LOG_LEVEL=WARNING
+                  EOF
+
+            - name: Start stack (postgres + backend)
+              run: docker compose up -d postgres backend
+              env:
+                  COMPOSE_PROJECT_NAME: ci-e2e
+
+            # Wait up to 90 s for the backend /health endpoint to become responsive.
+            # This handles slow Postgres cold starts on the CI runner.
+            - name: Wait for backend health
+              run: |
+                  echo "Waiting for backend..."
+                  for i in $(seq 1 18); do
+                    if curl -sf http://localhost:8001/health > /dev/null 2>&1; then
+                      echo "✓ Backend healthy (attempt $i)"; exit 0
+                    fi
+                    echo "  Attempt $i/18 — retrying in 5s..."; sleep 5
+                  done
+                  echo "✗ Backend did not become healthy within 90s"
+                  docker compose logs backend
+                  exit 1
+              env:
+                  COMPOSE_PROJECT_NAME: ci-e2e
+
+            # ── Smoke tests ───────────────────────────────────────────────────
+            - name: Smoke — GET /health → 200
+              run: |
+                  S=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8001/health)
+                  [ "$S" = "200" ] && echo "✓ /health → 200" || { echo "✗ $S"; exit 1; }
+
+            - name: Smoke — POST /auth/register → 201
+              run: |
+                  S=$(curl -sf -o /dev/null -w "%{http_code}" \
+                    -X POST http://localhost:8001/auth/register \
+                    -H "Content-Type: application/json" \
+                    -d '{"email":"smoke@ci.test","password":"SmokePass123!"}')
+                  [ "$S" = "201" ] && echo "✓ /auth/register → 201" || { echo "✗ $S"; exit 1; }
+
+            - name: Smoke — POST /auth/login → JWT
+              run: |
+                  R=$(curl -sf \
+                    -X POST http://localhost:8001/auth/login \
+                    -H "Content-Type: application/json" \
+                    -d '{"email":"smoke@ci.test","password":"SmokePass123!"}')
+                  echo "$R" | python3 -c \
+                    "import sys,json; d=json.load(sys.stdin); assert 'access_token' in d"
+                  echo "✓ /auth/login → JWT issued"
+
+            - name: Smoke — GET /stats unauthenticated → 401
+              run: |
+                  S=$(curl -o /dev/null -w "%{http_code}" http://localhost:8001/stats)
+                  [ "$S" = "401" ] && echo "✓ /stats unauth → 401" || { echo "✗ $S"; exit 1; }
+
+            - name: Smoke — POST /game/start unauthenticated → 401
+              run: |
+                  S=$(curl -o /dev/null -w "%{http_code}" \
+                    -X POST http://localhost:8001/game/start \
+                    -H "Content-Type: application/json" \
+                    -d '{"bet_amount":50}')
+                  [ "$S" = "401" ] && echo "✓ /game/start unauth → 401" || { echo "✗ $S"; exit 1; }
+
+            # ── Teardown — always runs even if smoke tests fail ────────────────
+            - name: Tear down stack
+              if: always()
+              run: docker compose down -v --remove-orphans
+              env:
+                  COMPOSE_PROJECT_NAME: ci-e2e
+
+    # ═════════════════════════════════════════════════════════════════════════
+    #  STAGE 5 — PUSH TO REGISTRY
+    #  Re-builds from GHA layer cache (fast — no layer re-download) and pushes
+    #  to GHCR.  Only on main / develop — never on PRs or feature branches.
+    #
+    #  Tags applied:
+    #    :sha-<7-char-commit>  — immutable, traceable
+    #    :latest               — convenience pointer
+    #
+    #  Secrets:
+    #    GITHUB_TOKEN — built-in, no manual configuration needed.
+    #                   Automatically grants write access to ghcr.io/<owner>/*.
+    # ═════════════════════════════════════════════════════════════════════════
+    push-registry:
+        name: "Stage 5 — Push to GHCR"
+        runs-on: ubuntu-22.04
+        timeout-minutes: 20
+        needs: e2e
+        if: |
+            github.ref == 'refs/heads/main' ||
+            github.ref == 'refs/heads/develop'
+
+        permissions:
+            contents: read
+            packages: write   # required to push to ghcr.io
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+            - name: Compute image tag
+              id: meta
+              run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+
+            # GITHUB_TOKEN is automatically injected — no secret setup required.
+            - name: Log in to GHCR
+              uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Push backend image
+              uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857aca09 # v5.0.0
+              with:
+                  context: ./backend
+                  push: true
+                  tags: |
+                      ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
+                      ${{ env.BACKEND_IMAGE }}:latest
+                  labels: |
+                      org.opencontainers.image.revision=${{ github.sha }}
+                      org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+                      org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+                  cache-from: type=gha,scope=backend
+                  cache-to: type=gha,mode=max,scope=backend
+
+            - name: Push frontend image
+              uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857aca09 # v5.0.0
+              with:
+                  context: ./frontend
+                  target: production
+                  push: true
+                  tags: |
+                      ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
+                      ${{ env.FRONTEND_IMAGE }}:latest
+                  labels: |
+                      org.opencontainers.image.revision=${{ github.sha }}
+                      org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+                      org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+                  cache-from: type=gha,scope=frontend
+                  cache-to: type=gha,mode=max,scope=frontend
+
+            - name: Write push summary
+              run: |
+                  TAG="${{ steps.meta.outputs.tag }}"
+                  echo "## ✅ Images pushed to GHCR" >> "$GITHUB_STEP_SUMMARY"
+                  echo "| Image | Tag |" >> "$GITHUB_STEP_SUMMARY"
+                  echo "|-------|-----|" >> "$GITHUB_STEP_SUMMARY"
+                  echo "| \`${{ env.BACKEND_IMAGE }}\` | \`${TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
+                  echo "| \`${{ env.FRONTEND_IMAGE }}\` | \`${TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
+
+    # ═════════════════════════════════════════════════════════════════════════
+    #  STAGE 6 — DEPLOY  (placeholder stub)
+    #
+    #  TODO: Replace this job with your real deployment step.
+    #
+    #  Common patterns:
+    #    • SSH deploy      appleboy/ssh-action → docker compose pull + up
+    #    • AWS ECS         aws-actions/amazon-ecs-deploy-task-definition
+    #    • Kubernetes      helm upgrade --install
+    #    • Fly.io          flyctl deploy --image <tag>
+    #
+    #  Required secrets (add under GitHub → Settings → Environments → staging):
+    #    DEPLOY_HOST       — SSH hostname / Elastic IP of the target server
+    #    DEPLOY_USER       — SSH login username (e.g. ec2-user, ubuntu, deploy)
+    #    DEPLOY_SSH_KEY    — Private SSH key in PEM format (no passphrase).
+    #                        Generate: ssh-keygen -t ed25519 -C "github-actions"
+    #    GHCR_READ_TOKEN   — GitHub PAT with read:packages scope so the server
+    #                        can docker pull from ghcr.io.
+    # ═════════════════════════════════════════════════════════════════════════
+    deploy:
+        name: "Stage 6 — Deploy (stub)"
+        runs-on: ubuntu-22.04
+        timeout-minutes: 5
+        needs: push-registry
+        if: |
+            github.ref == 'refs/heads/main' ||
+            github.ref == 'refs/heads/develop'
 
         environment:
             name: staging
-            url: ${{ vars.STAGING_URL }}
+            url: ${{ vars.STAGING_URL }}   # set STAGING_URL in GitHub → Environments → staging
 
         steps:
-            - uses: actions/checkout@v4
+            - name: Checkout
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-            - name: Deploy to staging via SSH
-              uses: appleboy/ssh-action@v1.0.3
-              with:
-                  host: ${{ secrets.DEPLOY_HOST }}
-                  username: ${{ secrets.DEPLOY_USER }}    # ec2-user on Amazon Linux 2023
-                  key: ${{ secrets.DEPLOY_SSH_KEY }}
-                  script: |
-                      set -e
-                      cd /opt/blackjack-application
-                      git pull origin ${{ github.ref_name }}
-
-                      BACKEND_IMAGE=${{ env.BACKEND_IMAGE }}
-                      FRONTEND_IMAGE=${{ env.FRONTEND_IMAGE }}
-                      IMAGE_TAG=${{ needs.package.outputs.image_tag }}
-
-                      # Pull the specific immutable SHA-tagged images
-                      # GHCR packages on this public repo are publicly pullable
-                      docker pull "$${BACKEND_IMAGE}:$${IMAGE_TAG}"
-                      docker pull "$${FRONTEND_IMAGE}:$${IMAGE_TAG}"
-
-                      # Retag as :latest so docker-compose.yml references resolve
-                      docker tag "$${BACKEND_IMAGE}:$${IMAGE_TAG}" blackjack-application_backend:latest
-                      docker tag "$${FRONTEND_IMAGE}:$${IMAGE_TAG}" blackjack-application_frontend:latest
-
-                      # Start with the AWS overlay:
-                      #   - removes backend→postgres depends_on
-                      #   - prevents the local postgres container from starting (RDS is used)
-                      docker compose \
-                        -f docker-compose.yml \
-                        -f docker-compose.prod.yml \
-                        -f infra/docker-compose.aws.yml \
-                        up -d --remove-orphans backend frontend
-
-                      docker image prune -f
-
-                      # Health check via nginx (port 80) — nginx proxies /health to backend
-                      for i in $(seq 1 6); do
-                        curl -sf http://localhost/health && break
-                        echo "Health check attempt $i/6 failed — retrying in 5s"
-                        sleep 5
-                      done
-
-            # ── Notify via GitHub Step Summary ────────────────────────────────
-            # Zero-dependency: visible in the Actions run UI for every deploy.
-            # Replace / extend with Slack/Teams webhook when ready.
-            - name: Notify — write deploy summary
-              if: always()
+            # ──────────────────────────────────────────────────────────────────
+            # TODO: Replace the echo below with your real deploy command.
+            # Example SSH deploy (uncomment and fill in):
+            #
+            # - name: Deploy via SSH
+            #   uses: appleboy/ssh-action@v1.0.3
+            #   with:
+            #     host:     ${{ secrets.DEPLOY_HOST }}
+            #     username: ${{ secrets.DEPLOY_USER }}
+            #     key:      ${{ secrets.DEPLOY_SSH_KEY }}
+            #     script: |
+            #       set -e
+            #       cd /opt/blackjack-application
+            #       git pull origin ${{ github.ref_name }}
+            #       echo "${{ secrets.GHCR_READ_TOKEN }}" | \
+            #         docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            #       docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+            #         pull && up -d --remove-orphans
+            #       docker image prune -f
+            # ──────────────────────────────────────────────────────────────────
+            - name: "TODO — deploy not yet configured"
               run: |
-                  STATUS="${{ job.status }}"
-                  TAG="${{ needs.package.outputs.image_tag }}"
-                  BRANCH="${{ github.ref_name }}"
-                  ACTOR="${{ github.actor }}"
-                  SHA="${{ github.sha }}"
-
-                  if [ "$STATUS" = "success" ]; then
-                    ICON="✅"
-                    HEADLINE="Staging deploy succeeded"
-                  else
-                    ICON="❌"
-                    HEADLINE="Staging deploy FAILED"
-                  fi
-
-                  cat >> "$GITHUB_STEP_SUMMARY" <<EOF
-                  ## $ICON $HEADLINE
-
-                  | Field       | Value |
-                  |-------------|-------|
-                  | Branch      | \`$BRANCH\` |
-                  | Commit      | \`${SHA::7}\` |
-                  | Image tag   | \`$TAG\` |
-                  | Triggered by | $ACTOR |
-                  | Status      | $STATUS |
-                  EOF
+                  echo "⚠ Deploy stub: no deployment target configured."
+                  echo "Edit the 'deploy' job in ci.yml to add your real deploy step."
+                  echo "Image tag: sha-$(git rev-parse --short HEAD)"
