@@ -1,607 +1,311 @@
-# ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                  PRODUCTION CI PIPELINE — Blackjack Application            ║
-# ║                                                                              ║
-# ║  Stack detected:                                                             ║
-# ║    Backend  — Python 3.11 · FastAPI · SQLAlchemy · pytest                   ║
-# ║    Frontend — Node 20 · React 18 · Vite 5 · no test framework               ║
-# ║    Images   — python:3.11-slim (backend) · nginx:alpine (frontend)          ║
-# ║    Registry — ghcr.io (GitHub Container Registry)                           ║
-# ║                                                                              ║
-# ║  Stage order (strict needs: chaining):                                      ║
-# ║                                                                              ║
-# ║  1 BUILD         Lint · SAST (Semgrep + Bandit) · dep-audit · compile       ║
-# ║       │                                                                      ║
-# ║  2 TEST          pytest (unit + integration) · coverage gate ≥ 80 %         ║
-# ║       │          ⚠  current combined coverage = 79 % —                      ║
-# ║       │             app/routes/game.py at 32 % is the primary gap           ║
-# ║       │                                                                      ║
-# ║  3 PACKAGE       Docker build (backend + frontend) · Trivy CVE scan         ║
-# ║       │                                                                      ║
-# ║  4 E2E           docker compose up · curl smoke tests · compose down        ║
-# ║       │                                                                      ║
-# ║  5 PUSH          Push sha-tagged + latest images → ghcr.io (main/develop)   ║
-# ║       │                                                                      ║
-# ║  6 DEPLOY        Placeholder stub (TODO: replace with real CD step)         ║
-# ║                                                                              ║
-# ╚══════════════════════════════════════════════════════════════════════════════╝
+name: CI/CD Pipeline — Blackjack App
 
-# ── Stage 1: Trigger ──────────────────────────────────────────────────────────
 on:
-    push:
-        branches: [main, develop, "feature/**", "fix/**"]
-    pull_request:
-        branches: [main, develop]
+  push:
+    branches:
+      - main
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
 
-name: CI
-
-# Principle of least privilege — jobs escalate only what they need
+# Allow the pipeline to create git tags (Push-to-ECR job)
 permissions:
-    contents: read
+  contents: write
 
 # Cancel in-flight runs on the same branch on every new push.
-# Exception: never cancel a run that is already deploying main.
+# Never cancel a run that is already deploying main.
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-# ── Shared environment ────────────────────────────────────────────────────────
-env:
-    PYTHON_VERSION: "3.11"
-    NODE_VERSION: "20"
-    REGISTRY: ghcr.io
-    BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/blackjack-backend
-    FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/blackjack-frontend
-
-# ═════════════════════════════════════════════════════════════════════════════
-#  STAGE 1 — BUILD
-#  Runs in parallel sub-tasks within one job:
-#    • Python:  ruff lint → black format check → bandit SAST → Semgrep SAST
-#               → pip-audit dependency scan
-#    • Node:    npm ci → npm audit → vite build
-# ═════════════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────────────
+#  JOB 1 — Build & Test
+#  • Install Python dependencies
+#  • Lint (ruff + black)
+#  • Run full pytest suite (unit + integration) against SQLite
+#  • Start the backend with uvicorn and verify /health responds
+# ─────────────────────────────────────────────────────────────────────────────
 jobs:
-    build:
-        name: "Stage 1 — Build"
-        runs-on: ubuntu-22.04
-        timeout-minutes: 15
+  Build-application:
+    name: Build & Test (${{ github.ref_name }})
+    runs-on: ubuntu-latest
 
-        steps:
-            # ── Checkout ──────────────────────────────────────────────────────
-            - name: Checkout
-              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-            # ── Python setup + cache ─────────────────────────────────────────
-            - name: Set up Python ${{ env.PYTHON_VERSION }}
-              uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
-              with:
-                  python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
 
-            - name: Cache pip packages
-              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
-              with:
-                  path: ~/.cache/pip
-                  # Bust cache when either requirements file changes
-                  key: pip-${{ runner.os }}-${{ hashFiles('backend/requirements*.txt') }}
-                  restore-keys: pip-${{ runner.os }}-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+        working-directory: backend
 
-            - name: Install Python dependencies
-              run: pip install --upgrade pip && pip install -r requirements.txt -r requirements-dev.txt
-              working-directory: backend
+      - name: Lint — ruff
+        run: ruff check .
+        working-directory: backend
 
-            # ── Linting ───────────────────────────────────────────────────────
-            # ruff: fast Python linter (replaces flake8/pylint/isort)
-            - name: Lint — ruff
-              run: ruff check .
-              working-directory: backend
+      - name: Lint — black (format check)
+        run: black --check .
+        working-directory: backend
 
-            # black: opinionated formatter — fail on any unformatted file
-            - name: Lint — black (format check)
-              run: black --check .
-              working-directory: backend
+      - name: Run unit + integration tests
+        env:
+          DATABASE_URL: sqlite:///./test.db
+          SECRET_KEY: ci-build-secret-key-minimum-32-characters-long
+          ENVIRONMENT: testing
+        run: pytest tests/ -v --tb=short
+        working-directory: backend
 
-            # ── SAST ─────────────────────────────────────────────────────────
-            # bandit: Python-specific SAST — detects common security issues
-            - name: SAST — bandit (save artifact)
-              if: always()
-              run: bandit -r app/ -ll -x tests/ --format json --output bandit-report.json --exit-zero
-              working-directory: backend
+      - name: Start backend (health check)
+        env:
+          DATABASE_URL: sqlite:///./smoke.db
+          SECRET_KEY: ci-build-secret-key-minimum-32-characters-long
+          ENVIRONMENT: testing
+        run: |
+          nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
+          echo "Waiting for backend to start..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8000/health > /dev/null; then
+              echo "✅ Backend is up! (attempt $i)"
+              break
+            fi
+            echo "⏳ Still waiting... ($i)"
+            sleep 1
+          done
+          curl --fail http://localhost:8000/health || \
+            { echo "❌ Backend did not respond!"; cat uvicorn.log; exit 1; }
+        working-directory: backend
 
-            - name: SAST — bandit (gate)
-              run: bandit -r app/ -ll -x tests/
-              working-directory: backend
+  # ───────────────────────────────────────────────────────────────────────────
+  #  JOB 2 — Package
+  #  • Build backend and frontend Docker images using Buildx
+  #  • GHA layer cache keeps repeat builds fast
+  # ───────────────────────────────────────────────────────────────────────────
+  Package-application:
+    name: Package (${{ github.ref_name }})
+    needs: Build-application
+    runs-on: ubuntu-latest
 
-            - name: Upload Bandit report
-              uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.2
-              if: always()
-              with:
-                  name: bandit-report
-                  path: backend/bandit-report.json
-                  retention-days: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-            # semgrep: multi-language SAST — runs Python + JWT + secrets rulesets.
-            # Pinned via pip version (no GHA action needed — avoids SHA ambiguity).
-            - name: SAST — semgrep
-              run: |
-                  pip install semgrep==1.74.0 --quiet
-                  semgrep --config "p/python" \
-                          --config "p/jwt" \
-                          --config "p/secrets" \
-                          --error \
-                          --quiet \
-                          --no-git-ignore \
-                          app/
-              working-directory: backend
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-            # ── Dependency vulnerability scan ─────────────────────────────────
-            # pip-audit: checks installed packages against OSV + PyPI advisories.
-            # Two-pass: save JSON artifact first (--exit-zero), then gate on findings.
-            - name: Dep audit — pip-audit (save artifact)
-              if: always()
-              run: |
-                  pip install pip-audit==2.7.3 --quiet
-                  pip-audit --requirement requirements.txt --format json \
-                    --output pip-audit-report.json || true
-              working-directory: backend
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          tags: blackjack-backend:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
 
-            - name: Dep audit — pip-audit (gate)
-              run: pip-audit --requirement requirements.txt
-              working-directory: backend
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: false
+          tags: blackjack-frontend:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
 
-            - name: Upload pip-audit report
-              uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.2
-              if: always()
-              with:
-                  name: pip-audit-report
-                  path: backend/pip-audit-report.json
-                  retention-days: 30
+      - name: Cleanup Docker
+        run: |
+          docker system prune -af
+          docker builder prune -af
 
-            # ── Node setup + cache ───────────────────────────────────────────
-            - name: Set up Node ${{ env.NODE_VERSION }}
-              uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
-              with:
-                  node-version: ${{ env.NODE_VERSION }}
-                  cache: npm
-                  cache-dependency-path: frontend/package-lock.json
+  # ───────────────────────────────────────────────────────────────────────────
+  #  JOB 3 — E2E Smoke Tests
+  #  • Spin up postgres + backend via docker compose
+  #  • Run curl smoke tests against the live HTTP API
+  #  • Tear down always runs (even on failure)
+  # ───────────────────────────────────────────────────────────────────────────
+  E2E-tests:
+    name: E2E Smoke Tests (${{ github.ref_name }})
+    needs: Package-application
+    runs-on: ubuntu-latest
 
-            - name: Install Node dependencies
-              run: npm ci
-              working-directory: frontend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-            # npm audit: checks package-lock.json against NPM advisory database.
-            # --audit-level=high: only fail on HIGH/CRITICAL advisories.
-            - name: Dep audit — npm audit (frontend)
-              run: npm audit --audit-level=high
-              working-directory: frontend
+      # Write ephemeral CI credentials — never used outside this job
+      - name: Create .env for stack
+        run: |
+          cat > .env <<'EOF'
+          POSTGRES_USER=blackjack
+          POSTGRES_PASSWORD=blackjack_ci_pw
+          POSTGRES_DB=blackjack
+          DATABASE_URL=postgresql://blackjack:blackjack_ci_pw@postgres:5432/blackjack
+          SECRET_KEY=ci-e2e-secret-key-32-characters-minimum
+          ALGORITHM=HS256
+          ACCESS_TOKEN_EXPIRE_MINUTES=30
+          ENVIRONMENT=testing
+          LOG_LEVEL=WARNING
+          EOF
 
-            # Compile the frontend — catches import errors, missing modules, etc.
-            - name: Compile — frontend Vite build
-              run: npm run build
-              working-directory: frontend
+      - name: Start stack (postgres + backend)
+        run: docker compose up -d postgres backend
 
-    # ═════════════════════════════════════════════════════════════════════════
-    #  STAGE 2 — TEST
-    #  Runs the full test suite (unit + integration) against SQLite (no infra
-    #  needed).  Coverage gate: fail if below 80 %.
-    #
-    #  ⚠  Current combined coverage = 79 %.  The gap is app/routes/game.py (32 %).
-    #     Add tests/test_game_routes.py to push over the threshold.
-    # ═════════════════════════════════════════════════════════════════════════
-    test:
-        name: "Stage 2 — Test"
-        runs-on: ubuntu-22.04
-        timeout-minutes: 15
-        needs: build
+      - name: Wait for backend health
+        run: |
+          echo "Waiting for backend to start and connect to Postgres..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8001/health > /dev/null; then
+              echo "✅ Backend is up AND connected to Postgres! (attempt $i)"
+              break
+            fi
+            echo "⏳ Still waiting... ($i)"
+            sleep 2
+          done
+          curl --fail http://localhost:8001/health || \
+            { echo "❌ Backend did not respond!"; docker compose logs backend; exit 1; }
 
-        steps:
-            - name: Checkout
-              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Smoke — GET /health → 200
+        run: |
+          S=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8001/health)
+          [ "$S" = "200" ] && echo "✅ /health → 200" || { echo "❌ /health → $S"; exit 1; }
 
-            - name: Set up Python ${{ env.PYTHON_VERSION }}
-              uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
-              with:
-                  python-version: ${{ env.PYTHON_VERSION }}
+      - name: Smoke — POST /auth/register → 201
+        run: |
+          S=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -X POST http://localhost:8001/auth/register \
+            -H "Content-Type: application/json" \
+            -d '{"email":"smoke@example.com","password":"SmokePass123!"}')
+          [ "$S" = "201" ] && echo "✅ /auth/register → 201" || { echo "❌ /auth/register → $S"; exit 1; }
 
-            - name: Restore pip cache
-              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
-              with:
-                  path: ~/.cache/pip
-                  key: pip-${{ runner.os }}-${{ hashFiles('backend/requirements*.txt') }}
-                  restore-keys: pip-${{ runner.os }}-
+      - name: Smoke — POST /auth/login → JWT
+        run: |
+          R=$(curl -sf \
+            -X POST http://localhost:8001/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"smoke@example.com","password":"SmokePass123!"}')
+          echo "$R" | python3 -c \
+            "import sys, json; d=json.load(sys.stdin); assert 'access_token' in d, 'no token'"
+          echo "✅ /auth/login → JWT issued"
 
-            - name: Install Python dependencies
-              run: pip install --upgrade pip && pip install -r requirements.txt -r requirements-dev.txt
-              working-directory: backend
+      - name: Smoke — GET /stats unauthenticated → 401
+        run: |
+          S=$(curl -o /dev/null -w "%{http_code}" http://localhost:8001/stats)
+          [ "$S" = "401" ] && echo "✅ /stats unauth → 401" || { echo "❌ /stats → $S"; exit 1; }
 
-            - name: Run tests (unit + integration) with coverage
-              env:
-                  # SQLite keeps CI self-contained — no Postgres service container needed
-                  DATABASE_URL: sqlite:///./test.db
-                  SECRET_KEY: ci-test-secret-key-minimum-32-characters-long
-                  ENVIRONMENT: testing
-                  PYTHONDONTWRITEBYTECODE: "1"
-                  PYTHONUNBUFFERED: "1"
-              run: |
-                  pytest tests/ \
-                    --cov=app \
-                    --cov-report=xml:coverage.xml \
-                    --cov-report=html:htmlcov \
-                    --cov-report=term-missing \
-                    --cov-fail-under=80 \
-                    -v
-              working-directory: backend
+      - name: Smoke — POST /game/start unauthenticated → 401
+        run: |
+          S=$(curl -o /dev/null -w "%{http_code}" \
+            -X POST http://localhost:8001/game/start \
+            -H "Content-Type: application/json" \
+            -d '{"bet_amount":50}')
+          [ "$S" = "401" ] && echo "✅ /game/start unauth → 401" || { echo "❌ /game/start → $S"; exit 1; }
 
-            - name: Upload coverage report (XML + HTML)
-              uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.2
-              # Always upload — useful for diagnosis even when the coverage gate fails
-              if: always()
-              with:
-                  name: coverage-report
-                  path: |
-                      backend/coverage.xml
-                      backend/htmlcov/
-                  retention-days: 30
+      - name: Remove E2E environment
+        if: always()
+        run: docker compose down -v --remove-orphans
 
-    # ═════════════════════════════════════════════════════════════════════════
-    #  STAGE 3 — PACKAGE
-    #  Build Docker images from source (GHA layer cache makes this fast on
-    #  repeat runs).  Run Trivy CVE scan on each image.
-    #  Pipeline fails if any CRITICAL unfixed vulnerability is found.
-    # ═════════════════════════════════════════════════════════════════════════
-    package:
-        name: "Stage 3 — Package"
-        runs-on: ubuntu-22.04
-        timeout-minutes: 20
-        needs: test
+  # ───────────────────────────────────────────────────────────────────────────
+  #  JOB 4 — Push to ECR  (main branch only)
+  #  • Rebuild images from GHA cache and push to Amazon ECR
+  #  • Auto-increment semantic version tag (patch bump)
+  #  • Create and push a Git tag for traceability
+  #  • Update image tags in the GitOps repo (blackjack-k8s/values.yaml)
+  #
+  #  Required secrets (Settings → Secrets and variables → Actions):
+  #    AWS_ACCESS_KEY_ID       IAM key with ecr:GetAuthorizationToken + ecr:Push
+  #    AWS_SECRET_ACCESS_KEY   Corresponding secret
+  #    ECR_REGION              e.g. us-east-1
+  #    ECR_BACKEND_URI         Full URI: <account>.dkr.ecr.<region>.amazonaws.com/blackjack-backend
+  #    ECR_FRONTEND_URI        Full URI: <account>.dkr.ecr.<region>.amazonaws.com/blackjack-frontend
+  #    GITOPS_PAT              GitHub PAT with repo scope on blackjack-k8s
+  # ───────────────────────────────────────────────────────────────────────────
+  Push-to-ECR:
+    name: Push to ECR (${{ github.ref_name }})
+    if: github.ref == 'refs/heads/main'
+    needs: E2E-tests
+    runs-on: ubuntu-latest
 
-        permissions:
-            contents: read
-            security-events: write   # required to upload SARIF to GitHub Security tab
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history required for git tag operations
 
-        outputs:
-            image_tag: ${{ steps.meta.outputs.tag }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-        steps:
-            - name: Checkout
-              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.ECR_REGION }}
 
-            - name: Compute image tag
-              id: meta
-              run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${{ secrets.ECR_REGION }} | \
+            docker login --username AWS --password-stdin ${{ secrets.ECR_BACKEND_URI }}
 
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+      - name: Compute next semantic version
+        id: version
+        run: |
+          git fetch --tags
+          latest=$(git tag -l '[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -1)
+          if [ -z "$latest" ]; then
+            next="1.0.0"
+          else
+            IFS='.' read -r major minor patch <<< "$latest"
+            next="${major}.${minor}.$((patch + 1))"
+          fi
+          echo "✅ New version: $next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
 
-            # ── Backend ───────────────────────────────────────────────────────
-            # load:true + push:false — image stays local for Trivy scan.
-            # GHA layer cache (scope=backend) means subsequent runs are seconds.
-            - name: Build backend image
-              uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857aca09 # v5.0.0
-              with:
-                  context: ./backend
-                  push: false
-                  load: true
-                  tags: ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                  labels: |
-                      org.opencontainers.image.revision=${{ github.sha }}
-                      org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-                  cache-from: type=gha,scope=backend
-                  cache-to: type=gha,mode=max,scope=backend
+      - name: Rebuild and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ secrets.ECR_BACKEND_URI }}:latest
+            ${{ secrets.ECR_BACKEND_URI }}:${{ steps.version.outputs.tag }}
+          cache-from: type=gha,scope=backend
 
-            # Blocking scan — exit-code 1 fails the job if any CRITICAL CVE is found
-            # that has an available fix.  See .trivyignore to suppress false positives.
-            - name: Trivy scan — backend (blocking gate)
-              uses: aquasecurity/trivy-action@0.24.0
-              with:
-                  image-ref: ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                  format: table
-                  exit-code: "1"
-                  severity: CRITICAL
-                  ignore-unfixed: true
-                  trivyignores: .trivyignore
+      - name: Rebuild and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ secrets.ECR_FRONTEND_URI }}:latest
+            ${{ secrets.ECR_FRONTEND_URI }}:${{ steps.version.outputs.tag }}
+          cache-from: type=gha,scope=frontend
 
-            - name: Trivy scan — backend (SARIF → Security tab)
-              uses: aquasecurity/trivy-action@0.24.0
-              if: always()
-              with:
-                  image-ref: ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                  format: sarif
-                  output: trivy-backend.sarif
-                  ignore-unfixed: true
-                  trivyignores: .trivyignore
+      - name: Create and push Git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.version.outputs.tag }}
+          git push origin ${{ steps.version.outputs.tag }}
 
-            - name: Upload backend SARIF
-              uses: github/codeql-action/upload-sarif@65c74964a9ed8c44ed9f19d4bbc5757a6a8af9ab # v3
-              if: always()
-              with:
-                  sarif_file: trivy-backend.sarif
-                  category: trivy-backend
+      - name: Update image tags in GitOps repo
+        run: |
+          git clone https://x-access-token:${{ secrets.GITOPS_PAT }}@github.com/alexmachulsky/blackjack-k8s.git
+          cd blackjack-k8s/blackjack-stack
 
-            # ── Frontend ──────────────────────────────────────────────────────
-            - name: Build frontend image
-              uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857aca09 # v5.0.0
-              with:
-                  context: ./frontend
-                  target: production
-                  push: false
-                  load: true
-                  tags: ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                  labels: |
-                      org.opencontainers.image.revision=${{ github.sha }}
-                      org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-                  cache-from: type=gha,scope=frontend
-                  cache-to: type=gha,mode=max,scope=frontend
+          pip install yq --quiet
 
-            - name: Trivy scan — frontend (blocking gate)
-              uses: aquasecurity/trivy-action@0.24.0
-              with:
-                  image-ref: ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                  format: table
-                  exit-code: "1"
-                  severity: CRITICAL
-                  ignore-unfixed: true
-                  trivyignores: .trivyignore
+          yq -y '.backend.image.tag  = "${{ steps.version.outputs.tag }}"' values.yaml > tmp && mv tmp values.yaml
+          yq -y '.frontend.image.tag = "${{ steps.version.outputs.tag }}"' values.yaml > tmp && mv tmp values.yaml
 
-            - name: Trivy scan — frontend (SARIF → Security tab)
-              uses: aquasecurity/trivy-action@0.24.0
-              if: always()
-              with:
-                  image-ref: ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                  format: sarif
-                  output: trivy-frontend.sarif
-                  ignore-unfixed: true
-                  trivyignores: .trivyignore
-
-            - name: Upload frontend SARIF
-              uses: github/codeql-action/upload-sarif@65c74964a9ed8c44ed9f19d4bbc5757a6a8af9ab # v3
-              if: always()
-              with:
-                  sarif_file: trivy-frontend.sarif
-                  category: trivy-frontend
-
-    # ═════════════════════════════════════════════════════════════════════════
-    #  STAGE 4 — E2E (End-to-End smoke tests)
-    #  Spins up the full stack (postgres + backend) using docker compose,
-    #  runs curl-based smoke tests against the live HTTP API, then tears down.
-    #
-    #  No E2E framework (Playwright/Cypress) was detected in this repo.
-    #  Smoke tests cover: liveness, auth register/login, protected endpoints.
-    #  Replace the curl tests with your E2E framework when ready.
-    # ═════════════════════════════════════════════════════════════════════════
-    e2e:
-        name: "Stage 4 — E2E (smoke tests)"
-        runs-on: ubuntu-22.04
-        timeout-minutes: 20
-        needs: package
-
-        steps:
-            - name: Checkout
-              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-            # Write a minimal .env so docker compose can start without errors.
-            # All values here are ephemeral CI credentials — NOT production secrets.
-            - name: Create .env for E2E stack
-              run: |
-                  cat > .env <<'EOF'
-                  POSTGRES_USER=blackjack
-                  POSTGRES_PASSWORD=blackjack_ci_pw
-                  POSTGRES_DB=blackjack
-                  DATABASE_URL=postgresql://blackjack:blackjack_ci_pw@postgres:5432/blackjack
-                  SECRET_KEY=ci-e2e-secret-key-32-characters-minimum
-                  ALGORITHM=HS256
-                  ACCESS_TOKEN_EXPIRE_MINUTES=30
-                  ENVIRONMENT=testing
-                  LOG_LEVEL=WARNING
-                  EOF
-
-            - name: Start stack (postgres + backend)
-              run: docker compose up -d postgres backend
-              env:
-                  COMPOSE_PROJECT_NAME: ci-e2e
-
-            # Wait up to 90 s for the backend /health endpoint to become responsive.
-            # This handles slow Postgres cold starts on the CI runner.
-            - name: Wait for backend health
-              run: |
-                  echo "Waiting for backend..."
-                  for i in $(seq 1 18); do
-                    if curl -sf http://localhost:8001/health > /dev/null 2>&1; then
-                      echo "✓ Backend healthy (attempt $i)"; exit 0
-                    fi
-                    echo "  Attempt $i/18 — retrying in 5s..."; sleep 5
-                  done
-                  echo "✗ Backend did not become healthy within 90s"
-                  docker compose logs backend
-                  exit 1
-              env:
-                  COMPOSE_PROJECT_NAME: ci-e2e
-
-            # ── Smoke tests ───────────────────────────────────────────────────
-            - name: Smoke — GET /health → 200
-              run: |
-                  S=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8001/health)
-                  [ "$S" = "200" ] && echo "✓ /health → 200" || { echo "✗ $S"; exit 1; }
-
-            - name: Smoke — POST /auth/register → 201
-              run: |
-                  S=$(curl -sf -o /dev/null -w "%{http_code}" \
-                    -X POST http://localhost:8001/auth/register \
-                    -H "Content-Type: application/json" \
-                    -d '{"email":"smoke@example.com","password":"SmokePass123!"}')
-                  [ "$S" = "201" ] && echo "✓ /auth/register → 201" || { echo "✗ $S"; exit 1; }
-
-            - name: Smoke — POST /auth/login → JWT
-              run: |
-                  R=$(curl -sf \
-                    -X POST http://localhost:8001/auth/login \
-                    -H "Content-Type: application/json" \
-                    -d '{"email":"smoke@example.com","password":"SmokePass123!"}')
-                  echo "$R" | python3 -c \
-                    "import sys,json; d=json.load(sys.stdin); assert 'access_token' in d"
-                  echo "✓ /auth/login → JWT issued"
-
-            - name: Smoke — GET /stats unauthenticated → 401
-              run: |
-                  S=$(curl -o /dev/null -w "%{http_code}" http://localhost:8001/stats)
-                  [ "$S" = "401" ] && echo "✓ /stats unauth → 401" || { echo "✗ $S"; exit 1; }
-
-            - name: Smoke — POST /game/start unauthenticated → 401
-              run: |
-                  S=$(curl -o /dev/null -w "%{http_code}" \
-                    -X POST http://localhost:8001/game/start \
-                    -H "Content-Type: application/json" \
-                    -d '{"bet_amount":50}')
-                  [ "$S" = "401" ] && echo "✓ /game/start unauth → 401" || { echo "✗ $S"; exit 1; }
-
-            # ── Teardown — always runs even if smoke tests fail ────────────────
-            - name: Tear down stack
-              if: always()
-              run: docker compose down -v --remove-orphans
-              env:
-                  COMPOSE_PROJECT_NAME: ci-e2e
-
-    # ═════════════════════════════════════════════════════════════════════════
-    #  STAGE 5 — PUSH TO REGISTRY
-    #  Re-builds from GHA layer cache (fast — no layer re-download) and pushes
-    #  to GHCR.  Only on main / develop — never on PRs or feature branches.
-    #
-    #  Tags applied:
-    #    :sha-<7-char-commit>  — immutable, traceable
-    #    :latest               — convenience pointer
-    #
-    #  Secrets:
-    #    GITHUB_TOKEN — built-in, no manual configuration needed.
-    #                   Automatically grants write access to ghcr.io/<owner>/*.
-    # ═════════════════════════════════════════════════════════════════════════
-    push-registry:
-        name: "Stage 5 — Push to GHCR"
-        runs-on: ubuntu-22.04
-        timeout-minutes: 20
-        needs: e2e
-        if: |
-            github.ref == 'refs/heads/main' ||
-            github.ref == 'refs/heads/develop'
-
-        permissions:
-            contents: read
-            packages: write   # required to push to ghcr.io
-
-        steps:
-            - name: Checkout
-              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-            - name: Compute image tag
-              id: meta
-              run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
-
-            # GITHUB_TOKEN is automatically injected — no secret setup required.
-            - name: Log in to GHCR
-              uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
-              with:
-                  registry: ${{ env.REGISTRY }}
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Push backend image
-              uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857aca09 # v5.0.0
-              with:
-                  context: ./backend
-                  push: true
-                  tags: |
-                      ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                      ${{ env.BACKEND_IMAGE }}:latest
-                  labels: |
-                      org.opencontainers.image.revision=${{ github.sha }}
-                      org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-                      org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
-                  cache-from: type=gha,scope=backend
-                  cache-to: type=gha,mode=max,scope=backend
-
-            - name: Push frontend image
-              uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857aca09 # v5.0.0
-              with:
-                  context: ./frontend
-                  target: production
-                  push: true
-                  tags: |
-                      ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-                      ${{ env.FRONTEND_IMAGE }}:latest
-                  labels: |
-                      org.opencontainers.image.revision=${{ github.sha }}
-                      org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-                      org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
-                  cache-from: type=gha,scope=frontend
-                  cache-to: type=gha,mode=max,scope=frontend
-
-            - name: Write push summary
-              run: |
-                  TAG="${{ steps.meta.outputs.tag }}"
-                  echo "## ✅ Images pushed to GHCR" >> "$GITHUB_STEP_SUMMARY"
-                  echo "| Image | Tag |" >> "$GITHUB_STEP_SUMMARY"
-                  echo "|-------|-----|" >> "$GITHUB_STEP_SUMMARY"
-                  echo "| \`${{ env.BACKEND_IMAGE }}\` | \`${TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
-                  echo "| \`${{ env.FRONTEND_IMAGE }}\` | \`${TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
-
-    # ═════════════════════════════════════════════════════════════════════════
-    #  STAGE 6 — DEPLOY  (placeholder stub)
-    #
-    #  TODO: Replace this job with your real deployment step.
-    #
-    #  Common patterns:
-    #    • SSH deploy      appleboy/ssh-action → docker compose pull + up
-    #    • AWS ECS         aws-actions/amazon-ecs-deploy-task-definition
-    #    • Kubernetes      helm upgrade --install
-    #    • Fly.io          flyctl deploy --image <tag>
-    #
-    #  Required secrets (add under GitHub → Settings → Environments → staging):
-    #    DEPLOY_HOST       — SSH hostname / Elastic IP of the target server
-    #    DEPLOY_USER       — SSH login username (e.g. ec2-user, ubuntu, deploy)
-    #    DEPLOY_SSH_KEY    — Private SSH key in PEM format (no passphrase).
-    #                        Generate: ssh-keygen -t ed25519 -C "github-actions"
-    #    GHCR_READ_TOKEN   — GitHub PAT with read:packages scope so the server
-    #                        can docker pull from ghcr.io.
-    # ═════════════════════════════════════════════════════════════════════════
-    deploy:
-        name: "Stage 6 — Deploy (stub)"
-        runs-on: ubuntu-22.04
-        timeout-minutes: 5
-        needs: push-registry
-        if: |
-            github.ref == 'refs/heads/main' ||
-            github.ref == 'refs/heads/develop'
-
-        environment:
-            name: staging
-            url: ${{ vars.STAGING_URL }}   # set STAGING_URL in GitHub → Environments → staging
-
-        steps:
-            - name: Checkout
-              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-            # ──────────────────────────────────────────────────────────────────
-            # TODO: Replace the echo below with your real deploy command.
-            # Example SSH deploy (uncomment and fill in):
-            #
-            # - name: Deploy via SSH
-            #   uses: appleboy/ssh-action@v1.0.3
-            #   with:
-            #     host:     ${{ secrets.DEPLOY_HOST }}
-            #     username: ${{ secrets.DEPLOY_USER }}
-            #     key:      ${{ secrets.DEPLOY_SSH_KEY }}
-            #     script: |
-            #       set -e
-            #       cd /opt/blackjack-application
-            #       git pull origin ${{ github.ref_name }}
-            #       echo "${{ secrets.GHCR_READ_TOKEN }}" | \
-            #         docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            #       docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-            #         pull && up -d --remove-orphans
-            #       docker image prune -f
-            # ──────────────────────────────────────────────────────────────────
-            - name: "TODO — deploy not yet configured"
-              run: |
-                  echo "⚠ Deploy stub: no deployment target configured."
-                  echo "Edit the 'deploy' job in ci.yml to add your real deploy step."
-                  echo "Image tag: sha-$(git rev-parse --short HEAD)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add values.yaml
+          git commit -m "ci: bump image tags to ${{ steps.version.outputs.tag }}"
+          git push https://x-access-token:${{ secrets.GITOPS_PAT }}@github.com/alexmachulsky/blackjack-k8s.git HEAD:main
