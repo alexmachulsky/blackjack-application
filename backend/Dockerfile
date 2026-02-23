@@ -7,7 +7,8 @@ WORKDIR /app
 
 # Install dependencies before copying source — layer cached unless requirements change
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip wheel setuptools && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application source
 COPY ./app ./app

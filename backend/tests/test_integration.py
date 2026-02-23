@@ -105,16 +105,16 @@ def test_login_unknown_email_returns_401(client):
 # ---------------------------------------------------------------------------
 
 
-def test_stats_without_auth_returns_403(client):
-    """GET /stats without token must return 403 (FastAPI OAuth2 default)."""
+def test_stats_without_auth_returns_401(client):
+    """GET /stats without token must return 401 (HTTPBearer with auto_error=True)."""
     response = client.get("/stats")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
-def test_game_start_without_auth_returns_403(client):
-    """POST /game/start without token must return 403 (FastAPI OAuth2 default)."""
+def test_game_start_without_auth_returns_401(client):
+    """POST /game/start without token must return 401 (HTTPBearer with auto_error=True)."""
     response = client.post("/game/start", json={"bet_amount": 50.0})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 # ---------------------------------------------------------------------------
