@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.routes.game import active_games
-from app.services.game_engine import GameEngine, Hand
+from app.services.game_engine import GameEngine
 from app.services.deck import Card, Rank, Suit
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -104,9 +104,7 @@ def test_start_game_negative_bet_returns_400(client):
 
 def test_start_game_insufficient_balance_returns_400(client):
     headers = _make_headers(client)
-    resp = client.post(
-        "/game/start", headers=headers, json={"bet_amount": 99999.0}
-    )
+    resp = client.post("/game/start", headers=headers, json={"bet_amount": 99999.0})
     assert resp.status_code == 400
     assert "insufficient" in resp.json()["detail"].lower()
 
@@ -140,9 +138,7 @@ def test_get_game_finished(client):
 
     if start["status"] == "active":
         # Stand to finish the game (dealer auto-plays)
-        stand = client.post(
-            "/game/stand", headers=headers, json={"game_id": game_id}
-        )
+        stand = client.post("/game/stand", headers=headers, json={"game_id": game_id})
         assert stand.status_code == 200
 
     resp = client.get(f"/game/{game_id}", headers=headers)
@@ -320,9 +316,7 @@ def test_double_down_success(client):
     )
     active_games[str(game_id)] = engine
 
-    resp = client.post(
-        "/game/double-down", headers=headers, json={"game_id": game_id}
-    )
+    resp = client.post("/game/double-down", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "finished"
@@ -349,9 +343,7 @@ def test_double_down_not_available_returns_400(client):
     )
     active_games[str(game_id)] = engine
 
-    resp = client.post(
-        "/game/double-down", headers=headers, json={"game_id": game_id}
-    )
+    resp = client.post("/game/double-down", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 400
     assert "double down" in resp.json()["detail"].lower()
 
@@ -360,7 +352,9 @@ def test_double_down_insufficient_balance_returns_400(client):
     """User has no balance left to match the bet."""
     headers = _make_headers(client)
     # Bet the entire balance away
-    start_resp = client.post("/game/start", headers=headers, json={"bet_amount": 1000.0})
+    start_resp = client.post(
+        "/game/start", headers=headers, json={"bet_amount": 1000.0}
+    )
     assert start_resp.status_code == 200
     game_id = start_resp.json()["game_id"]
     start_status = start_resp.json()["status"]
@@ -374,9 +368,7 @@ def test_double_down_insufficient_balance_returns_400(client):
     )
     active_games[str(game_id)] = engine
 
-    resp = client.post(
-        "/game/double-down", headers=headers, json={"game_id": game_id}
-    )
+    resp = client.post("/game/double-down", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 400
     assert "insufficient" in resp.json()["detail"].lower()
 
@@ -462,7 +454,9 @@ def test_split_cannot_split_returns_400(client):
 
 def test_split_insufficient_balance_returns_400(client):
     headers = _make_headers(client)
-    start_resp = client.post("/game/start", headers=headers, json={"bet_amount": 1000.0})
+    start_resp = client.post(
+        "/game/start", headers=headers, json={"bet_amount": 1000.0}
+    )
     assert start_resp.status_code == 200
     game_id = start_resp.json()["game_id"]
     start_status = start_resp.json()["status"]
