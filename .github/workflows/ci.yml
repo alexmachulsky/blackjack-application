@@ -77,7 +77,7 @@ jobs:
                   python-version: ${{ env.PYTHON_VERSION }}
 
             - name: Cache pip packages
-              uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
               with:
                   path: ~/.cache/pip
                   # Bust cache when either requirements file changes
@@ -202,7 +202,7 @@ jobs:
                   python-version: ${{ env.PYTHON_VERSION }}
 
             - name: Restore pip cache
-              uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c6158d # v4.2.0
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
               with:
                   path: ~/.cache/pip
                   key: pip-${{ runner.os }}-${{ hashFiles('backend/requirements*.txt') }}
