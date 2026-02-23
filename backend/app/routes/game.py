@@ -1,4 +1,5 @@
 import logging
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import Dict, List
@@ -33,10 +34,18 @@ def _get_active_game(
     and return both the DB record and the in-memory engine.
     Raises HTTPException on any validation failure.
     """
+    try:
+        game_uuid = uuid.UUID(game_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Game not found",
+        )
+
     game = (
         db.query(Game)
         .filter(
-            Game.id == game_id,
+            Game.id == game_uuid,
             Game.user_id == user_id,
         )
         .first()
@@ -527,10 +536,18 @@ def get_game(
 ):
     """Get game state by ID (reconstructed from DB)."""
 
+    try:
+        game_uuid = uuid.UUID(game_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Game not found",
+        )
+
     game = (
         db.query(Game)
         .filter(
-            Game.id == game_id,
+            Game.id == game_uuid,
             Game.user_id == current_user.id,
         )
         .first()
