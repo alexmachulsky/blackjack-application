@@ -75,7 +75,7 @@ jobs:
 
             # ── Backend ───────────────────────────────────────────
             - name: Build & push backend
-              uses: docker/build-push-action@v5
+              uses: docker/build-push-action@v6
               with:
                   context: ./backend
                   push: true
@@ -91,7 +91,7 @@ jobs:
 
             # ── Frontend ──────────────────────────────────────────
             - name: Build & push frontend
-              uses: docker/build-push-action@v5
+              uses: docker/build-push-action@v6
               with:
                   context: ./frontend
                   target: production
