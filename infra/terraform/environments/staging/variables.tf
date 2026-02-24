@@ -22,52 +22,28 @@ variable "availability_zones" {
   default     = ["us-east-1a", "us-east-1b"]
 }
 
-# ── EC2 ─────────────────────────────────────────────────────────────────────────
-variable "key_name" {
-  description = "Name of an existing EC2 Key Pair for SSH access"
+# ── EKS ─────────────────────────────────────────────────────────────────────────
+variable "kubernetes_version" {
+  description = "Kubernetes version for the EKS cluster"
   type        = string
+  default     = "1.31"
 }
 
-variable "instance_type" {
-  type    = string
-  default = "t3.small"
-}
-
-variable "admin_cidr" {
-  description = "Your IP CIDR for SSH access (e.g. 203.0.113.5/32)"
+variable "node_instance_type" {
+  description = "EC2 instance type for EKS worker nodes"
   type        = string
-
-  validation {
-    condition     = can(cidrhost(var.admin_cidr, 0)) && var.admin_cidr != "0.0.0.0/0"
-    error_message = "admin_cidr must be a valid CIDR and must not be 0.0.0.0/0. Use a specific trusted source CIDR."
-  }
+  default     = "t3.small"
 }
 
-# ── RDS ─────────────────────────────────────────────────────────────────────────
-variable "db_instance_class" {
-  type    = string
-  default = "db.t3.micro"
-}
-
+# ── Database (runs in-cluster as StatefulSet) ────────────────────────────────
 variable "db_name" {
-  type    = string
-  default = "blackjack"
+  description = "PostgreSQL database name"
+  type        = string
+  default     = "blackjack"
 }
 
 variable "db_username" {
-  type    = string
-  default = "blackjack"
-}
-
-# ── Images ──────────────────────────────────────────────────────────────────────
-variable "ghcr_owner" {
-  description = "GitHub owner of GHCR packages (e.g. alexmachulsky)"
+  description = "PostgreSQL username"
   type        = string
-  default     = "alexmachulsky"
-}
-
-variable "image_tag" {
-  description = "Docker image tag to deploy"
-  type        = string
-  default     = "latest"
+  default     = "blackjack"
 }

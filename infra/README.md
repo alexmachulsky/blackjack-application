@@ -1,4 +1,4 @@
-# Infrastructure — AWS (Terraform)
+# Infrastructure — AWS EKS (Terraform + Kubernetes)
 
 ## Architecture
 
@@ -6,49 +6,76 @@
 Internet
     │
     ▼
-  ALB (port 80)                    ← public subnets, us-east-1a/1b
+  NLB (port 80)                         ← auto-created by K8s Service
     │
     ▼
-  EC2 t3.small                     ← public subnet, Amazon Linux 2023
-  ┌─────────────────────────────┐
-  │  Docker Compose             │
-  │  ├─ nginx (frontend :80)    │
-  │  └─ FastAPI (backend :8000) │
-  └─────────────────────────────┘
-    │
-    ▼
-  RDS PostgreSQL db.t3.micro       ← private subnets
+  EKS Cluster (blackjack-staging)
+  ┌──────────────────────────────────┐
+  │  1× t3.small node               │
+  │  ├── frontend  (nginx, 1 pod)   │
+  │  ├── backend   (FastAPI, 1 pod) │
+  │  └── postgres  (StatefulSet)    │
+  │       └── 5 GB EBS gp3 PVC     │
+  └──────────────────────────────────┘
 ```
 
-## Module structure
+## Directory structure
 
 ```
 infra/
-├── docker-compose.aws.yml         # Compose override: removes postgres container, uses RDS
+├── docker-compose.aws.yml          # Legacy: EC2-based deploy override
+├── k8s/                            # Kubernetes manifests
+│   ├── namespace.yaml
+│   ├── postgres.yaml               # StatefulSet + headless Service + gp3 StorageClass
+│   ├── backend.yaml                # Deployment + ClusterIP Service
+│   ├── frontend.yaml               # Deployment + LoadBalancer Service (NLB)
+│   └── deploy.sh                   # One-command deployment script
 └── terraform/
     ├── modules/
-    │   ├── vpc/                   # VPC, subnets, IGW, route tables
-    │   ├── security_groups/       # ALB, EC2, RDS security groups
-    │   ├── rds/                   # PostgreSQL 15 on db.t3.micro
-    │   ├── ec2/                   # App server + user_data bootstrap
-    │   └── alb/                   # Internet-facing ALB + target group
+    │   ├── vpc/                    # VPC, subnets (with EKS discovery tags), IGW
+    │   ├── eks/                    # EKS cluster, node group, OIDC, EBS CSI driver
+    │   ├── alb/                    # (legacy — kept for reference)
+    │   ├── ec2/                    # (legacy — kept for reference)
+    │   ├── rds/                    # (legacy — kept for reference)
+    │   └── security_groups/        # (legacy — kept for reference)
     └── environments/
         └── staging/
-            ├── backend.tf         # S3 remote state + DynamoDB lock
-            ├── main.tf            # Root module — wires everything together
+            ├── backend.tf          # S3 remote state + provider config
+            ├── main.tf             # Root module: VPC → EKS
             ├── variables.tf
-            ├── secrets.tf         # Sensitive vars (db_password, secret_key)
+            ├── secrets.tf          # Sensitive vars (db_password, secret_key)
             ├── outputs.tf
             └── terraform.tfvars.example
 ```
 
+## Cost estimate (~730 hrs/month, us-east-1)
+
+| Resource | Monthly Cost |
+|----------|-------------|
+| EKS control plane | $73.00 |
+| EC2 t3.small (1 node) | ~$15 |
+| NLB | ~$18 |
+| EBS gp3 5 GB (PostgreSQL) | ~$0.40 |
+| **Total** | **~$107/month** |
+
+> **Cost-saving tip**: Stop the EKS node group when not in use:
+> ```bash
+> aws eks update-nodegroup-config \
+>   --cluster-name blackjack-staging \
+>   --nodegroup-name blackjack-staging-nodes \
+>   --scaling-config minSize=0,maxSize=2,desiredSize=0 \
+>   --region us-east-1
+> ```
+> This reduces cost to ~$73/month (control plane only). Scale back up by setting desiredSize=1.
+
 ## Prerequisites
 
-| Tool         | Version  |
-|--------------|----------|
-| Terraform    | >= 1.7   |
-| AWS CLI      | >= 2.x   |
-| AWS account  | IAM user with AdministratorAccess (or scoped policy) |
+| Tool | Version | Install |
+|------|---------|---------|
+| Terraform | >= 1.7 | `brew install terraform` |
+| AWS CLI | >= 2.x | `brew install awscli` |
+| kubectl | >= 1.28 | `brew install kubectl` |
+| AWS account | IAM user with AdministratorAccess | — |
 
 ## One-time bootstrap (remote state)
 
@@ -74,60 +101,73 @@ aws dynamodb create-table \
   --region us-east-1
 ```
 
-## Deploying staging
+## Deploying
+
+### Step 1 — Provision infrastructure (~15 minutes)
 
 ```bash
 cd infra/terraform/environments/staging
 
 # Copy and edit the example vars file
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars — set key_name, admin_cidr, etc.
 
 # Set secrets as environment variables (never put in tfvars file)
 export TF_VAR_db_password="$(openssl rand -base64 24)"
 export TF_VAR_app_secret_key="$(openssl rand -hex 32)"
 
-# Initialise, plan, apply
+# Provision EKS cluster + VPC
 terraform init
 terraform plan -out=staging.tfplan
 terraform apply staging.tfplan
 ```
 
-After apply, Terraform prints:
+### Step 2 — Configure kubectl
 
+```bash
+aws eks update-kubeconfig --name blackjack-staging --region us-east-1
+
+# Verify connectivity
+kubectl get nodes
 ```
-alb_dns_name   = "http://blackjack-staging-alb-<id>.us-east-1.elb.amazonaws.com"
-ec2_public_ip  = "x.x.x.x"
-rds_endpoint   = "blackjack-staging-postgres.<id>.us-east-1.rds.amazonaws.com:5432"
+
+### Step 3 — Deploy application (~2 minutes)
+
+```bash
+cd infra/k8s
+./deploy.sh
 ```
 
-Open `alb_dns_name` in your browser — the app will be live once the EC2 user_data bootstrap completes (~2 min).
+The script will:
+1. Create the `blackjack` namespace
+2. Fetch secrets from SSM Parameter Store and create K8s Secrets
+3. Deploy PostgreSQL (StatefulSet with 5 GB EBS volume)
+4. Deploy backend (FastAPI) with init container waiting for PostgreSQL
+5. Deploy frontend (Nginx) with NLB
+6. Print the application URL
 
-## GitHub Actions integration (CI Stage 7)
+### Updating the application
 
-Add these secrets to `Settings → Environments → staging`:
+After pushing new images via CI/CD:
 
-| Secret           | Value                                     |
-|------------------|-------------------------------------------|
-| `DEPLOY_HOST`    | EC2 public IP from `terraform output`     |
-| `DEPLOY_USER`    | `ec2-user`                                |
-| `DEPLOY_SSH_KEY` | Private key matching `var.key_name`       |
+```bash
+# Update backend image
+kubectl -n blackjack set image deployment/backend \
+  backend=ghcr.io/alexmachulsky/blackjack-backend:sha-abc1234
+
+# Update frontend image
+kubectl -n blackjack set image deployment/frontend \
+  frontend=ghcr.io/alexmachulsky/blackjack-frontend:sha-abc1234
+```
 
 ## Tearing down
 
 ```bash
+# Delete K8s resources first (removes NLB)
+kubectl delete namespace blackjack
+
+# Then destroy Terraform resources
+cd infra/terraform/environments/staging
 terraform destroy
 ```
 
 This removes all resources **except** the S3 state bucket and DynamoDB lock table (managed manually).
-
-## Cost estimate (staging, us-east-1, ~730 hrs/month)
-
-| Resource           | Approx monthly cost |
-|--------------------|---------------------|
-| EC2 t3.small       | ~$15                |
-| RDS db.t3.micro    | ~$14                |
-| ALB                | ~$18                |
-| **Total**          | **~$47/month**      |
-
-> Stop the EC2 instance when not in active use to reduce costs.

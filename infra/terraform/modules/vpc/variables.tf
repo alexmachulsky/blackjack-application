@@ -31,6 +31,12 @@ variable "availability_zones" {
   type        = list(string)
 }
 
+variable "cluster_name" {
+  description = "EKS cluster name — enables Kubernetes subnet discovery tags (leave empty to skip)"
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)

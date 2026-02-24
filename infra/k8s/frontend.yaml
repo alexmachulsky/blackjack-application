@@ -1,0 +1,70 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Frontend — Nginx serving React SPA + proxying API to backend
+#
+# Exposed via an NLB (Service type: LoadBalancer) on port 80.
+# The nginx.conf inside the image proxies /auth, /game, /stats → backend:8000
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: blackjack
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/alexmachulsky/blackjack-frontend:latest
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30
+
+---
+# LoadBalancer Service — creates an AWS NLB automatically
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: blackjack
+  labels:
+    app: frontend
+  annotations:
+    # Create NLB instead of Classic LB
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+spec:
+  type: LoadBalancer
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http

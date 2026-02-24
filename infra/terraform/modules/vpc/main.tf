@@ -50,7 +50,10 @@ resource "aws_subnet" "private" {
   tags = merge(var.tags, {
     Name = "${var.app_name}-${var.environment}-private-${count.index + 1}"
     Tier = "private"
-  })
+    }, var.cluster_name != "" ? {
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+    "kubernetes.io/role/internal-elb"           = "1"
+  } : {})
 }
 
 # ── Public route table → Internet Gateway ─────────────────────────────────────
