@@ -17,7 +17,7 @@ mypy==1.8.0
 types-passlib==1.7.7.20240106
 
 # Security scanning (also used in CI SAST job)
-bandit[toml]==1.7.7
+bandit[toml]==1.9.3
 
 # DB for tests
 # SQLite is used in conftest — no extra dep needed
