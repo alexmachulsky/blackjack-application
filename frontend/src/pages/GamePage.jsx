@@ -186,7 +186,7 @@ export default function GamePage() {
               <div className="stat-pill">
                 <span className="stat-label">Win %</span>
                 <span className="stat-value">
-                  {stats.win_rate != null ? `${Math.round(stats.win_rate * 100)}%` : '0%'}
+                  {stats.win_rate != null ? `${Math.round(stats.win_rate)}%` : '0%'}
                 </span>
               </div>
             </>}
@@ -203,7 +203,7 @@ export default function GamePage() {
 
         {/* Table markings */}
         <div className="table-markings">
-          <div className="marking-main">BlackJack Pays 3 to 1</div>
+          <div className="marking-main">BlackJack Pays 3 to 2</div>
           <div className="marking-sub">Dealer must draw on 16's and stand on all 17's</div>
           <div className="marking-insurance">Insurance pays 2 to 1</div>
         </div>

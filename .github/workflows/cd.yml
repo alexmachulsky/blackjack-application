@@ -58,6 +58,8 @@ jobs:
         steps:
             - name: Checkout
               uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.workflow_run.head_sha }}
 
             - name: Set short SHA
               id: meta
@@ -75,7 +77,7 @@ jobs:
 
             # ── Backend ───────────────────────────────────────────
             - name: Build & push backend
-              uses: docker/build-push-action@v5
+              uses: docker/build-push-action@v6
               with:
                   context: ./backend
                   push: true
@@ -91,7 +93,7 @@ jobs:
 
             # ── Frontend ──────────────────────────────────────────
             - name: Build & push frontend
-              uses: docker/build-push-action@v5
+              uses: docker/build-push-action@v6
               with:
                   context: ./frontend
                   target: production
@@ -151,8 +153,8 @@ jobs:
                       echo "${{ secrets.GHCR_READ_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
                       # Rolling update: pull then recreate with zero-downtime intent
-                      docker compose -f docker-compose.prod.yml pull
-                      docker compose -f docker-compose.prod.yml up -d --remove-orphans
+                      docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+                      docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
 
                       # Health check
                       echo "Waiting for backend health check..."

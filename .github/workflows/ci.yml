@@ -182,6 +182,8 @@ jobs:
           ENVIRONMENT=testing
           LOG_LEVEL=WARNING
           EOF
+          # Strip leading whitespace from each line (YAML indentation artefact)
+          sed -i 's/^[[:space:]]*//' .env
 
       - name: Start stack (postgres + backend)
         run: docker compose up -d postgres backend
@@ -203,12 +205,22 @@ jobs:
       - name: Smoke — GET /ready → 200
         run: |
           S=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8001/ready)
-          [ "$S" = "200" ] && echo "✅ /ready → 200" || { echo "❌ /ready → $S"; exit 1; }
+          if [ "$S" = "200" ]; then
+            echo "✅ /ready → 200"
+          else
+            echo "❌ /ready → $S"
+            exit 1
+          fi
 
       - name: Smoke — GET /health → 200
         run: |
           S=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8001/health)
-          [ "$S" = "200" ] && echo "✅ /health → 200" || { echo "❌ /health → $S"; exit 1; }
+          if [ "$S" = "200" ]; then
+            echo "✅ /health → 200"
+          else
+            echo "❌ /health → $S"
+            exit 1
+          fi
 
       - name: Smoke — POST /auth/register → 201
         run: |
@@ -216,7 +228,12 @@ jobs:
             -X POST http://localhost:8001/auth/register \
             -H "Content-Type: application/json" \
             -d '{"email":"smoke@example.com","password":"SmokePass123!"}')
-          [ "$S" = "201" ] && echo "✅ /auth/register → 201" || { echo "❌ /auth/register → $S"; exit 1; }
+          if [ "$S" = "201" ]; then
+            echo "✅ /auth/register → 201"
+          else
+            echo "❌ /auth/register → $S"
+            exit 1
+          fi
 
       - name: Smoke — POST /auth/login → JWT
         run: |
@@ -231,7 +248,12 @@ jobs:
       - name: Smoke — GET /stats unauthenticated → 401
         run: |
           S=$(curl -o /dev/null -w "%{http_code}" http://localhost:8001/stats)
-          [ "$S" = "401" ] && echo "✅ /stats unauth → 401" || { echo "❌ /stats → $S"; exit 1; }
+          if [ "$S" = "401" ]; then
+            echo "✅ /stats unauth → 401"
+          else
+            echo "❌ /stats → $S"
+            exit 1
+          fi
 
       - name: Smoke — POST /game/start unauthenticated → 401
         run: |
@@ -239,7 +261,12 @@ jobs:
             -X POST http://localhost:8001/game/start \
             -H "Content-Type: application/json" \
             -d '{"bet_amount":50}')
-          [ "$S" = "401" ] && echo "✅ /game/start unauth → 401" || { echo "❌ /game/start → $S"; exit 1; }
+          if [ "$S" = "401" ]; then
+            echo "✅ /game/start unauth → 401"
+          else
+            echo "❌ /game/start → $S"
+            exit 1
+          fi
 
       - name: Remove E2E environment
         if: always()

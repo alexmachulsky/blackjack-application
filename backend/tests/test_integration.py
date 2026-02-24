@@ -15,16 +15,10 @@ stage (Stage 5) — after unit tests and static analysis both pass.
 
 import pytest
 import uuid
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from app.models.game import Game
 
 pytestmark = pytest.mark.integration
-
-TEST_DATABASE_URL = "sqlite:///./test.db"
-engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +183,9 @@ def test_stats_after_game(client):
 
 def _insert_finished_game(user_id: uuid.UUID, result: str, bet_amount: float = 10.0):
     """Insert a finished game row directly into test DB for stats aggregation tests."""
-    db = SessionLocal()
+    from tests.conftest import TestingSessionLocal
+
+    db = TestingSessionLocal()
     try:
         game = Game(
             user_id=user_id,

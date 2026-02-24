@@ -21,7 +21,7 @@ services:
     networks:
       - blackjack-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U blackjack"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-blackjack}"]
       interval: 10s
       timeout: 5s
       retries: 5

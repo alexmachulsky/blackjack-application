@@ -2,9 +2,13 @@ import uuid
 from sqlalchemy import Boolean, Column, String, Float, DateTime, ForeignKey, Integer
 from sqlalchemy import Uuid
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.database import Base
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class Game(Base):
@@ -17,7 +21,7 @@ class Game(Base):
     result = Column(
         String, nullable=True
     )  # win, lose, push, blackjack (comma-sep for split)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utc_now, nullable=False)
     # Phase 2: track whether this game involved a split
     is_split = Column(Boolean, default=False, nullable=False)
 
