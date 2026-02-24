@@ -14,7 +14,7 @@ on:
 # One CD run at a time — never deploy two versions simultaneously
 concurrency:
     group: cd-${{ github.ref }}
-    cancel-in-progress: false   # finish current deploy before starting next
+    cancel-in-progress: false # finish current deploy before starting next
 
 env:
     REGISTRY: ghcr.io

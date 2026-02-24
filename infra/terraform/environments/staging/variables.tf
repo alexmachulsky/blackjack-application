@@ -36,7 +36,11 @@ variable "instance_type" {
 variable "admin_cidr" {
   description = "Your IP CIDR for SSH access (e.g. 203.0.113.5/32)"
   type        = string
-  default     = "0.0.0.0/0"
+
+  validation {
+    condition     = can(cidrhost(var.admin_cidr, 0)) && var.admin_cidr != "0.0.0.0/0"
+    error_message = "admin_cidr must be a valid CIDR and must not be 0.0.0.0/0. Use a specific trusted source CIDR."
+  }
 }
 
 # ── RDS ─────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-name: CI/CD Pipeline — Blackjack App
+name: CI
 
 on:
   push:
@@ -9,9 +9,10 @@ on:
     branches:
       - main
 
-# Allow the pipeline to create git tags (Push-to-ECR job)
+# Default: all jobs get read-only access.
+# The Push-to-ECR job overrides this with contents: write for git tag creation.
 permissions:
-  contents: write
+  contents: read
 
 # Cancel in-flight runs on the same branch on every new push.
 # Never cancel a run that is already deploying main.
@@ -27,6 +28,17 @@ concurrency:
 #  • Start the backend with uvicorn and verify /health responds
 # ─────────────────────────────────────────────────────────────────────────────
 jobs:
+  dependency-review:
+    name: Dependency Review (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+
   Build-application:
     name: Build & Test (${{ github.ref_name }})
     runs-on: ubuntu-latest
@@ -64,6 +76,22 @@ jobs:
         run: pytest tests/ -v --tb=short
         working-directory: backend
 
+      - name: Dependency vulnerability audit (Python)
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --strict
+        working-directory: backend
+
+      - name: Filesystem vulnerability scan (Trivy)
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8 # v0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+          format: table
+
       - name: Start backend (health check)
         env:
           DATABASE_URL: sqlite:///./smoke.db
@@ -73,14 +101,14 @@ jobs:
           nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
           echo "Waiting for backend to start..."
           for i in {1..30}; do
-            if curl -sf http://localhost:8000/health > /dev/null; then
+            if curl -sf http://localhost:8000/ready > /dev/null; then
               echo "✅ Backend is up! (attempt $i)"
               break
             fi
             echo "⏳ Still waiting... ($i)"
             sleep 1
           done
-          curl --fail http://localhost:8000/health || \
+          curl --fail http://localhost:8000/ready || \
             { echo "❌ Backend did not respond!"; cat uvicorn.log; exit 1; }
         working-directory: backend
 
@@ -91,7 +119,8 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   Package-application:
     name: Package (${{ github.ref_name }})
-    needs: Build-application
+    needs: [dependency-review, Build-application]
+    if: always() && needs.Build-application.result == 'success' && (github.event_name != 'pull_request' || needs.dependency-review.result == 'success')
     runs-on: ubuntu-latest
 
     steps:
@@ -161,15 +190,20 @@ jobs:
         run: |
           echo "Waiting for backend to start and connect to Postgres..."
           for i in {1..30}; do
-            if curl -sf http://localhost:8001/health > /dev/null; then
+            if curl -sf http://localhost:8001/ready > /dev/null; then
               echo "✅ Backend is up AND connected to Postgres! (attempt $i)"
               break
             fi
             echo "⏳ Still waiting... ($i)"
             sleep 2
           done
-          curl --fail http://localhost:8001/health || \
+          curl --fail http://localhost:8001/ready || \
             { echo "❌ Backend did not respond!"; docker compose logs backend; exit 1; }
+
+      - name: Smoke — GET /ready → 200
+        run: |
+          S=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8001/ready)
+          [ "$S" = "200" ] && echo "✅ /ready → 200" || { echo "❌ /ready → $S"; exit 1; }
 
       - name: Smoke — GET /health → 200
         run: |
@@ -231,12 +265,14 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: E2E-tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # needed to create and push git version tags
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history required for git tag operations
+          fetch-depth: 0 # full history required for git tag operations
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

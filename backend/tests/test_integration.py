@@ -14,8 +14,17 @@ stage (Stage 5) — after unit tests and static analysis both pass.
 """
 
 import pytest
+import uuid
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.models.game import Game
 
 pytestmark = pytest.mark.integration
+
+TEST_DATABASE_URL = "sqlite:///./test.db"
+engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 # ---------------------------------------------------------------------------
@@ -176,3 +185,42 @@ def test_stats_after_game(client):
     # Stats must at least contain these fields
     assert "total_games" in body
     assert "current_balance" in body
+
+
+def _insert_finished_game(user_id: uuid.UUID, result: str, bet_amount: float = 10.0):
+    """Insert a finished game row directly into test DB for stats aggregation tests."""
+    db = SessionLocal()
+    try:
+        game = Game(
+            user_id=user_id,
+            status="finished",
+            bet_amount=bet_amount,
+            result=result,
+        )
+        db.add(game)
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_stats_counts_split_results_per_hand(client):
+    """Split result strings like 'win,lose' must be fully counted in stats."""
+    headers = _register_and_login(client, "splitstats@example.com")
+    me_response = client.get("/auth/me", headers=headers)
+    assert me_response.status_code == 200
+    user_id = uuid.UUID(me_response.json()["id"])
+
+    _insert_finished_game(user_id, "win,lose")
+    _insert_finished_game(user_id, "blackjack,push")
+    _insert_finished_game(user_id, "lose")
+
+    response = client.get("/stats", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["total_games"] == 3
+    assert body["wins"] == 2
+    assert body["losses"] == 2
+    assert body["pushes"] == 1
+    assert body["blackjacks"] == 1
+    assert body["win_rate"] == 40.0

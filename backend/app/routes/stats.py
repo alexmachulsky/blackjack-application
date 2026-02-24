@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -17,48 +16,37 @@ def get_stats(
 ):
     """Get player statistics"""
 
-    # Count games
-    total_games = (
-        db.query(func.count(Game.id))
+    finished_results = (
+        db.query(Game.result)
         .filter(Game.user_id == current_user.id, Game.status == "finished")
-        .scalar()
-        or 0
+        .all()
     )
 
-    # Count wins
-    wins = (
-        db.query(func.count(Game.id))
-        .filter(Game.user_id == current_user.id, Game.result.in_(["win", "blackjack"]))
-        .scalar()
-        or 0
-    )
+    total_games = len(finished_results)
+    wins = 0
+    losses = 0
+    pushes = 0
+    blackjacks = 0
 
-    # Count losses
-    losses = (
-        db.query(func.count(Game.id))
-        .filter(Game.user_id == current_user.id, Game.result == "lose")
-        .scalar()
-        or 0
-    )
+    for (result_value,) in finished_results:
+        if not result_value:
+            continue
 
-    # Count pushes
-    pushes = (
-        db.query(func.count(Game.id))
-        .filter(Game.user_id == current_user.id, Game.result == "push")
-        .scalar()
-        or 0
-    )
+        hand_results = [part.strip().lower() for part in result_value.split(",")]
 
-    # Count blackjacks
-    blackjacks = (
-        db.query(func.count(Game.id))
-        .filter(Game.user_id == current_user.id, Game.result == "blackjack")
-        .scalar()
-        or 0
-    )
+        for hand_result in hand_results:
+            if hand_result == "blackjack":
+                blackjacks += 1
+                wins += 1
+            elif hand_result == "win":
+                wins += 1
+            elif hand_result == "lose":
+                losses += 1
+            elif hand_result == "push":
+                pushes += 1
 
-    # Calculate win rate
-    win_rate = (wins / total_games * 100) if total_games > 0 else 0.0
+    total_resolved_hands = wins + losses + pushes
+    win_rate = (wins / total_resolved_hands * 100) if total_resolved_hands > 0 else 0.0
 
     return PlayerStats(
         total_games=total_games,

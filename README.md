@@ -111,6 +111,7 @@ pytest tests/test_game_engine.py -v
 
 ### Health
 - `GET /health` - Health check endpoint
+- `GET /ready` - Readiness check (includes database connectivity)
 
 ## 🗄 Database Schema
 

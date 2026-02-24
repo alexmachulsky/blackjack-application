@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.core.database import engine, Base
 from app.core.config import settings
@@ -51,10 +52,13 @@ logging.getLogger().handlers = [handler]
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Blackjack API")
-    # NOTE: create_all is acceptable for development.
-    # In production, run DB migrations with: alembic upgrade head
-    # or: make migrate
-    Base.metadata.create_all(bind=engine)
+    if settings.ENVIRONMENT.lower() in {"development", "dev", "testing", "test"}:
+        # NOTE: create_all is acceptable for local and test workflows.
+        Base.metadata.create_all(bind=engine)
+    else:
+        logger.info(
+            "Skipping schema auto-creation in non-dev environment; run migrations instead"
+        )
     yield
     # Shutdown
     logger.info("Shutting down Blackjack API")
@@ -117,6 +121,20 @@ async def health_check():
         "version": "1.0.0",
         "environment": settings.ENVIRONMENT,
     }
+
+
+@app.get("/ready")
+async def readiness_check():
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        return {
+            "status": "ready",
+            "service": "blackjack-api",
+            "environment": settings.ENVIRONMENT,
+        }
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "not_ready"})
 
 
 @app.exception_handler(Exception)
