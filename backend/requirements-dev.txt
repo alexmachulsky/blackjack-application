@@ -3,9 +3,9 @@
 # (also install requirements.txt first)
 
 # Testing
-pytest==7.4.4
-pytest-asyncio==0.23.8
-pytest-cov==4.1.0
+pytest==9.0.2
+pytest-asyncio==0.25.3
+pytest-cov==6.0.0
 httpx==0.26.0
 
 # Linting & formatting
