@@ -1,8 +1,8 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# VPC — public + private subnets, IGW, route tables
+# VPC — public + private subnets, IGW, NAT gateway, route tables
 #
-# Public subnets  : ALB + EC2
-# Private subnets : RDS (no NAT gateway needed — RDS does not require outbound)
+# Public subnets  : EKS control-plane ENIs, NAT Gateway, external load balancers
+# Private subnets : EKS worker nodes (egress via NAT, no inbound from internet)
 # ──────────────────────────────────────────────────────────────────────────────
 
 resource "aws_vpc" "this" {
@@ -31,16 +31,21 @@ resource "aws_subnet" "public" {
   cidr_block        = var.public_subnet_cidrs[count.index]
   availability_zone = var.availability_zones[count.index]
 
-  # EC2 instances launched here get a public IP automatically
-  map_public_ip_on_launch = true
+  # Nodes do NOT launch here — this is only for the NAT GW and load balancers.
+  # Worker nodes live in private subnets.
+  map_public_ip_on_launch = false
 
   tags = merge(var.tags, {
     Name = "${var.app_name}-${var.environment}-public-${count.index + 1}"
     Tier = "public"
-  })
+    }, var.cluster_name != "" ? {
+    # Required for the AWS Load Balancer Controller to discover external-facing subnets
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+    "kubernetes.io/role/elb"                    = "1"
+  } : {})
 }
 
-# ── Private subnets (RDS) ──────────────────────────────────────────────────────
+# ── Private subnets (EKS worker nodes) ────────────────────────────────────────
 resource "aws_subnet" "private" {
   count             = length(var.private_subnet_cidrs)
   vpc_id            = aws_vpc.this.id
@@ -76,9 +81,38 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# ── Private route table (no outbound route — RDS doesn't need internet) ────────
+# ── Elastic IP + NAT Gateway (single, in first public subnet) ─────────────────
+# One NAT per VPC is cost-optimal for staging (~$32/month).
+# For production HA, provision one NAT GW per AZ.
+resource "aws_eip" "nat" {
+  domain = "vpc"
+
+  tags = merge(var.tags, {
+    Name = "${var.app_name}-${var.environment}-nat-eip"
+  })
+
+  depends_on = [aws_internet_gateway.this]
+}
+
+resource "aws_nat_gateway" "this" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public[0].id
+
+  tags = merge(var.tags, {
+    Name = "${var.app_name}-${var.environment}-nat"
+  })
+
+  depends_on = [aws_internet_gateway.this]
+}
+
+# ── Private route table — egress via NAT Gateway ──────────────────────────────
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.this.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.this.id
+  }
 
   tags = merge(var.tags, {
     Name = "${var.app_name}-${var.environment}-rt-private"

@@ -8,8 +8,8 @@ environment = "staging"
 availability_zones = ["ap-south-1a", "ap-south-1b"]
 
 # EKS
-kubernetes_version = "1.31"
-node_instance_type = "t3.small"    # ~$15/month — cheapest for 3 pods
+kubernetes_version = "1.32"
+node_instance_type = "t3.small"    # SPOT ~$5/month — ~70% cheaper than ON_DEMAND
 
 # Database (runs as K8s StatefulSet, not RDS)
 db_name     = "blackjack"

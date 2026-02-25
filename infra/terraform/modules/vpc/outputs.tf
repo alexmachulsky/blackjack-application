@@ -9,6 +9,6 @@ output "public_subnet_ids" {
 }
 
 output "private_subnet_ids" {
-  description = "List of private subnet IDs (for RDS)"
+  description = "List of private subnet IDs (for EKS worker nodes)"
   value       = aws_subnet.private[*].id
 }

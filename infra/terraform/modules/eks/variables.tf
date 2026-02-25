@@ -49,8 +49,19 @@ variable "node_disk_size" {
   default     = 20
 }
 
+variable "capacity_type" {
+  description = "EC2 capacity type for the managed node group: ON_DEMAND or SPOT"
+  type        = string
+  default     = "SPOT"
+
+  validation {
+    condition     = contains(["ON_DEMAND", "SPOT"], var.capacity_type)
+    error_message = "capacity_type must be ON_DEMAND or SPOT."
+  }
+}
+
 variable "public_access_cidrs" {
-  description = "CIDRs allowed to access the EKS API server publicly"
+  description = "CIDRs allowed to access the EKS API server publicly. Restrict to your IP in production."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }

@@ -77,8 +77,8 @@ resource "aws_eks_cluster" "this" {
     public_access_cidrs     = var.public_access_cidrs
   }
 
-  # Minimal logging — enable selectively to save costs
-  enabled_cluster_log_types = []
+  # Audit log captures all API calls — essential for security visibility
+  enabled_cluster_log_types = ["audit"]
 
   depends_on = [
     aws_iam_role_policy_attachment.cluster_AmazonEKSClusterPolicy,
@@ -109,7 +109,7 @@ resource "aws_eks_node_group" "this" {
   node_role_arn   = aws_iam_role.node.arn
   subnet_ids      = var.node_subnet_ids
   instance_types  = [var.node_instance_type]
-  capacity_type   = "ON_DEMAND"
+  capacity_type   = var.capacity_type
 
   scaling_config {
     desired_size = var.node_desired_size
