@@ -153,11 +153,11 @@ After pushing new images via CI/CD:
 ```bash
 # Update backend image
 kubectl -n blackjack set image deployment/backend \
-  backend=ghcr.io/alexmachulsky/blackjack-backend:sha-abc1234
+  backend=904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.1
 
 # Update frontend image
 kubectl -n blackjack set image deployment/frontend \
-  frontend=ghcr.io/alexmachulsky/blackjack-frontend:sha-abc1234
+  frontend=904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:frontend-1.0.1
 ```
 
 ## Tearing down
