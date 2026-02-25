@@ -161,7 +161,8 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   E2E-tests:
     name: E2E Smoke Tests (${{ github.ref_name }})
-    needs: Package-application
+    needs: Push-to-ECR
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
@@ -185,8 +186,29 @@ jobs:
           # Strip leading whitespace from each line (YAML indentation artefact)
           sed -i 's/^[[:space:]]*//' .env
 
-      - name: Start stack (postgres + backend)
-        run: docker compose up -d postgres backend
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Login to Amazon ECR (private)
+        run: |
+          aws ecr get-login-password --region ap-south-1 | \
+            docker login --username AWS --password-stdin \
+            904233124111.dkr.ecr.ap-south-1.amazonaws.com
+
+      - name: Pull backend image from ECR
+        run: |
+          docker pull 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-${{ needs.Push-to-ECR.outputs.tag }}
+          echo "✅ Pulled backend-${{ needs.Push-to-ECR.outputs.tag }} from ECR"
+
+      - name: Start stack using ECR image (postgres + backend)
+        run: |
+          IMAGE_TAG=${{ needs.Push-to-ECR.outputs.tag }} \
+            docker compose -f docker-compose.yml -f docker-compose.ecr.yml \
+            up --no-build -d postgres backend
 
       - name: Wait for backend health
         run: |
@@ -270,7 +292,10 @@ jobs:
 
       - name: Remove E2E environment
         if: always()
-        run: docker compose down -v --remove-orphans
+        run: |
+          IMAGE_TAG=${{ needs.Push-to-ECR.outputs.tag }} \
+            docker compose -f docker-compose.yml -f docker-compose.ecr.yml \
+            down -v --remove-orphans
 
   # ───────────────────────────────────────────────────────────────────────────
   #  JOB 4 — Push to ECR  (main branch only)
@@ -290,10 +315,12 @@ jobs:
   Push-to-ECR:
     name: Push to ECR (${{ github.ref_name }})
     if: github.ref == 'refs/heads/main'
-    needs: E2E-tests
+    needs: Package-application
     runs-on: ubuntu-latest
     permissions:
       contents: write # needed to create and push git version tags
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
 
     steps:
       - name: Checkout code
@@ -360,11 +387,9 @@ jobs:
           ECR="904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application"
           VER="${{ steps.version.outputs.tag }}"
 
-          sed -i "s|image: ${ECR}:backend-.*|image: ${ECR}:backend-${VER}|" infra/k8s/backend.yaml
-          sed -i "s|image: ${ECR}:frontend-.*|image: ${ECR}:frontend-${VER}|" infra/k8s/frontend.yaml
-
-          # Also update the migrate init container
-          sed -i "0,/image: ${ECR}:backend-${VER}/{s|image: ${ECR}:backend-.*|image: ${ECR}:backend-${VER}|}" infra/k8s/backend.yaml
+          # Updates both the migrate init container and main container in backend.yaml
+          sed -i "s|image: ${ECR}:backend-.*|image: ${ECR}:backend-${VER}|g" infra/k8s/backend.yaml
+          sed -i "s|image: ${ECR}:frontend-.*|image: ${ECR}:frontend-${VER}|g" infra/k8s/frontend.yaml
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

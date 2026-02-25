@@ -1,0 +1,16 @@
+# ──────────────────────────────────────────────────────────────
+# ECR E2E override — replaces local build with the versioned ECR image.
+# Used exclusively by the CI E2E job AFTER images are pushed to ECR.
+#
+# Usage:
+#   IMAGE_TAG=1.0.0 \
+#   docker compose -f docker-compose.yml -f docker-compose.ecr.yml \
+#     up --no-build -d postgres backend
+# ──────────────────────────────────────────────────────────────
+
+services:
+  backend:
+    # Override: use the immutable ECR image instead of building from source
+    image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-${IMAGE_TAG}
+    # Remove dev --reload flag; run the image as it will run in production
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
