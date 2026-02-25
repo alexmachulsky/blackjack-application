@@ -5,7 +5,7 @@
 # Testing
 # pytest-asyncio requires pytest<9 (all releases up to 0.26.x cap at pytest<9)
 pytest>=8.2,<9
-pytest-asyncio>=0.24,<1
+pytest-asyncio>=0.24,<2
 pytest-cov>=5.0,<8
 httpx>=0.26,<1
 
