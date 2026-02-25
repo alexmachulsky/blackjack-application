@@ -282,7 +282,7 @@ jobs:
   #  Required secrets (Settings → Secrets and variables → Actions):
   #    AWS_ACCESS_KEY_ID       IAM key with ecr:GetAuthorizationToken + ecr:Push
   #    AWS_SECRET_ACCESS_KEY   Corresponding secret
-  #    ECR_REGION              e.g. us-east-1
+  #    ECR_REGION              e.g. ap-south-1
   #    ECR_BACKEND_URI         Full URI: <account>.dkr.ecr.<region>.amazonaws.com/blackjack-backend
   #    ECR_FRONTEND_URI        Full URI: <account>.dkr.ecr.<region>.amazonaws.com/blackjack-frontend
   #    GITOPS_PAT              GitHub PAT with repo scope on blackjack-k8s

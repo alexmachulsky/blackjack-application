@@ -1,7 +1,7 @@
 variable "aws_region" {
   description = "AWS region to deploy into"
   type        = string
-  default     = "us-east-1"
+  default     = "ap-south-1"
 }
 
 variable "app_name" {
@@ -19,7 +19,7 @@ variable "environment" {
 variable "availability_zones" {
   description = "AZs to deploy subnets into (must be in var.aws_region)"
   type        = list(string)
-  default     = ["us-east-1a", "us-east-1b"]
+  default     = ["ap-south-1a", "ap-south-1b"]
 }
 
 # ── EKS ─────────────────────────────────────────────────────────────────────────

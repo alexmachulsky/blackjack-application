@@ -48,7 +48,7 @@ infra/
             └── terraform.tfvars.example
 ```
 
-## Cost estimate (~730 hrs/month, us-east-1)
+## Cost estimate (~730 hrs/month, ap-south-1)
 
 | Resource | Monthly Cost |
 |----------|-------------|
@@ -64,7 +64,7 @@ infra/
 >   --cluster-name blackjack-staging \
 >   --nodegroup-name blackjack-staging-nodes \
 >   --scaling-config minSize=0,maxSize=2,desiredSize=0 \
->   --region us-east-1
+>   --region ap-south-1
 > ```
 > This reduces cost to ~$73/month (control plane only). Scale back up by setting desiredSize=1.
 
@@ -81,7 +81,8 @@ infra/
 
 ```bash
 # 1. Create S3 bucket for Terraform state
-aws s3api create-bucket --bucket blackjack-tf-state --region us-east-1
+aws s3api create-bucket --bucket blackjack-tf-state --region ap-south-1 \
+  --create-bucket-configuration LocationConstraint=ap-south-1
 
 aws s3api put-bucket-versioning \
   --bucket blackjack-tf-state \
@@ -98,7 +99,7 @@ aws dynamodb create-table \
   --attribute-definitions AttributeName=LockID,AttributeType=S \
   --key-schema AttributeName=LockID,KeyType=HASH \
   --billing-mode PAY_PER_REQUEST \
-  --region us-east-1
+  --region ap-south-1
 ```
 
 ## Deploying
@@ -124,7 +125,7 @@ terraform apply staging.tfplan
 ### Step 2 — Configure kubectl
 
 ```bash
-aws eks update-kubeconfig --name blackjack-staging --region us-east-1
+aws eks update-kubeconfig --name blackjack-staging --region ap-south-1
 
 # Verify connectivity
 kubectl get nodes

@@ -28,7 +28,7 @@ command -v aws >/dev/null 2>&1    || { echo "❌ aws CLI not found. Install it f
 # Verify cluster connectivity
 if ! kubectl cluster-info >/dev/null 2>&1; then
   echo "❌ Cannot reach Kubernetes cluster. Run:"
-  echo "   aws eks update-kubeconfig --name blackjack-staging --region us-east-1"
+   echo "   aws eks update-kubeconfig --name blackjack-staging --region ap-south-1"
   exit 1
 fi
 
@@ -36,7 +36,7 @@ echo "✅ Connected to cluster: $(kubectl config current-context)"
 echo ""
 
 # ── Gather secrets ───────────────────────────────────────────────────────────
-AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_REGION="${AWS_REGION:-ap-south-1}"
 APP_NAME="${APP_NAME:-blackjack}"
 ENV="${ENVIRONMENT:-staging}"
 

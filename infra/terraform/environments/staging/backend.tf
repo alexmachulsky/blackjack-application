@@ -5,7 +5,7 @@
 #
 #   aws s3api create-bucket \
 #     --bucket <your-tf-state-bucket> \
-#     --region us-east-1
+#     --region ap-south-1
 #
 #   aws s3api put-bucket-versioning \
 #     --bucket <your-tf-state-bucket> \
@@ -21,7 +21,7 @@
 #     --attribute-definitions AttributeName=LockID,AttributeType=S \
 #     --key-schema AttributeName=LockID,KeyType=HASH \
 #     --billing-mode PAY_PER_REQUEST \
-#     --region us-east-1
+#     --region ap-south-1
 #
 # Then run: terraform init
 # ──────────────────────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ terraform {
     # Replace with your actual bucket name after running the bootstrap commands
     bucket         = "blackjack-tf-state"
     key            = "staging/terraform.tfstate"
-    region         = "us-east-1"
+    region         = "ap-south-1"
     encrypt        = true
     dynamodb_table = "terraform-lock"
   }

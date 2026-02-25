@@ -1,11 +1,11 @@
 # Copy to terraform.tfvars and fill in real values.
 # Never commit terraform.tfvars — it is .gitignored.
 
-aws_region  = "us-east-1"
+aws_region  = "ap-south-1"
 app_name    = "blackjack"
 environment = "staging"
 
-availability_zones = ["us-east-1a", "us-east-1b"]
+availability_zones = ["ap-south-1a", "ap-south-1b"]
 
 # EKS
 kubernetes_version = "1.31"
