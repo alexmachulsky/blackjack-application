@@ -35,7 +35,7 @@ spec:
               done
               echo "PostgreSQL is ready!"
         - name: migrate
-          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.5
+          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.6
           command: ["alembic", "upgrade", "head"]
           env:
             - name: DATABASE_URL
@@ -45,7 +45,7 @@ spec:
                   key: DATABASE_URL
       containers:
         - name: backend
-          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.5
+          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.6
           ports:
             - containerPort: 8000
               name: http
