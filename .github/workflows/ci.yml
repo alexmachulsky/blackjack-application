@@ -201,6 +201,8 @@ jobs:
         with:
           context: ./backend
           push: true
+          platforms: linux/amd64
+          provenance: false
           tags: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-${{ steps.version.outputs.tag }}
           cache-from: type=gha,scope=backend
 
@@ -209,6 +211,8 @@ jobs:
         with:
           context: ./frontend
           push: true
+          platforms: linux/amd64
+          provenance: false
           tags: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:frontend-${{ steps.version.outputs.tag }}
           cache-from: type=gha,scope=frontend
 
