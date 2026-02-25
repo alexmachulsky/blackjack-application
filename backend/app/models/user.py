@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Float, DateTime
+from sqlalchemy import Column, String, Numeric, DateTime
 from sqlalchemy import Uuid
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -17,7 +17,7 @@ class User(Base):
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=False)
-    balance = Column(Float, default=1000.0, nullable=False)
+    balance = Column(Numeric(10, 2), default=1000.00, nullable=False)
     created_at = Column(DateTime, default=_utc_now, nullable=False)
 
     # Relationships

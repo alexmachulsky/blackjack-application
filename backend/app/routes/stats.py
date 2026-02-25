@@ -55,5 +55,5 @@ def get_stats(
         pushes=pushes,
         blackjacks=blackjacks,
         win_rate=round(win_rate, 2),
-        current_balance=current_user.balance,
+        current_balance=float(current_user.balance),
     )

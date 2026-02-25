@@ -13,6 +13,10 @@ RUN pip install --upgrade pip wheel setuptools && \
 # Copy application source
 COPY ./app ./app
 
+# Copy Alembic config + migration scripts (required by K8s init container)
+COPY alembic.ini .
+COPY migrations/ ./migrations/
+
 # Hand ownership to the non-root user
 RUN chown -R appuser:appgroup /app
 

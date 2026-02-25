@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Boolean, Column, String, Float, DateTime, ForeignKey, Integer
+from sqlalchemy import Boolean, Column, String, Numeric, DateTime, ForeignKey, Integer
 from sqlalchemy import Uuid
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -17,7 +17,7 @@ class Game(Base):
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False)
     status = Column(String, default="active", nullable=False)  # active, finished
-    bet_amount = Column(Float, nullable=False)
+    bet_amount = Column(Numeric(10, 2), nullable=False)
     result = Column(
         String, nullable=True
     )  # win, lose, push, blackjack (comma-sep for split)

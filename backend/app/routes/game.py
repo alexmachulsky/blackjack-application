@@ -1,5 +1,6 @@
 import logging
 import uuid
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import Dict, List
@@ -142,7 +143,7 @@ def _build_active_state(game: Game, engine: GameEngine, user: User) -> GameState
         dealer_value=0,
         result=None,
         payout=None,
-        new_balance=user.balance,
+        new_balance=float(user.balance),
         can_double_down=state["can_double_down"],
         is_split=engine.is_split,
         can_split=state["can_split"],
@@ -168,9 +169,10 @@ def _finish_game(
     # Each hand (split or not) is worth the original per-hand bet stored in game.bet_amount.
     # For double-down the bet was already doubled in the DB before this helper is called,
     # so the multiplied amount flows through naturally.
-    total_payout = sum(game.bet_amount * multiplier for _, multiplier in results)
+    bet = Decimal(str(game.bet_amount))
+    total_payout = sum(bet * Decimal(str(multiplier)) for _, multiplier in results)
     result_strings = [r for r, _ in results]
-    payout_list = [game.bet_amount * m for _, m in results]
+    payout_list = [float(bet * Decimal(str(m))) for _, m in results]
 
     user.balance += total_payout
 
@@ -215,8 +217,8 @@ def _finish_game(
         dealer_hand=[CardSchema(**c) for c in state["dealer_hand"]],
         dealer_value=state["dealer_value"],
         result=primary_result,
-        payout=total_payout,
-        new_balance=user.balance,
+        payout=float(total_payout),
+        new_balance=float(user.balance),
         can_double_down=False,
         is_split=engine.is_split,
         can_split=False,
@@ -252,11 +254,11 @@ def start_game(
             detail="Insufficient balance",
         )
 
-    current_user.balance -= game_data.bet_amount
+    current_user.balance -= Decimal(str(game_data.bet_amount))
 
     game = Game(
         user_id=current_user.id,
-        bet_amount=game_data.bet_amount,
+        bet_amount=Decimal(str(game_data.bet_amount)),
         status="active",
     )
     db.add(game)
@@ -311,7 +313,7 @@ def start_game(
         dealer_value=0,
         result=None,
         payout=None,
-        new_balance=current_user.balance,
+        new_balance=float(current_user.balance),
         # Phase 1: True if pair was dealt (player can split or double)
         can_double_down=engine.can_double_down(),
         can_split=state["can_split"],
@@ -426,8 +428,8 @@ def double_down(
         )
 
     # Charge additional bet and double the stored bet amount
-    current_user.balance -= game.bet_amount
-    game.bet_amount *= 2
+    current_user.balance -= Decimal(str(game.bet_amount))
+    game.bet_amount = Decimal(str(game.bet_amount)) * 2
 
     # Deal one card and let dealer auto-play (inside engine)
     initial_dealer_cards = len(engine.dealer_hand.cards)
@@ -490,7 +492,7 @@ def split(
         )
 
     # Deduct additional bet for the second hand
-    current_user.balance -= game.bet_amount
+    current_user.balance -= Decimal(str(game.bet_amount))
 
     # Perform the split (engine updates player_hands in place)
     card1, card2 = engine.player_split()
@@ -605,6 +607,6 @@ def get_game(
         dealer_value=dealer_value,
         result=game.result,
         payout=None,
-        new_balance=current_user.balance,
+        new_balance=float(current_user.balance),
         is_split=game.is_split,
     )

@@ -1,5 +1,5 @@
 # ── Stage 1: build ────────────────────────────────────────────────────────────
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -17,15 +17,20 @@ FROM nginx:1.27-alpine AS production
 
 # Upgrade all Alpine packages to pick up latest security patches.
 # Keeps the image clean of known CVEs at build time.
-RUN apk upgrade --no-cache
+# Configure nginx to run as non-root (pid + temp dirs writable by nginx user).
+RUN apk upgrade --no-cache && \
+    mkdir -p /tmp/nginx && \
+    chown -R nginx:nginx /tmp/nginx /var/cache/nginx /usr/share/nginx/html && \
+    sed -i 's|/var/run/nginx.pid|/tmp/nginx/nginx.pid|' /etc/nginx/nginx.conf
 
 # Copy built static assets from builder stage
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder --chown=nginx:nginx /app/dist /usr/share/nginx/html
 
 # Nginx config: route all requests through index.html for SPA routing
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --chown=nginx:nginx nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+USER nginx
+EXPOSE 8080
 
 # Bake the commit SHA into the image — guarantees a unique digest on every build
 ARG BUILD_SHA=unknown

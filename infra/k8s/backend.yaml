@@ -2,7 +2,7 @@
 # Backend — FastAPI application
 #
 # Single replica; scales to 2+ by changing replicas.
-# Pulls image from GHCR (public repo — no imagePullSecrets needed).
+# Pulls image from private ECR — nodes have ECR read-only policy via IAM.
 # ──────────────────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
@@ -21,6 +21,11 @@ spec:
       labels:
         app: backend
     spec:
+      # Pod-level security: no privilege escalation, non-root
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       # Wait for PostgreSQL, then run Alembic migrations before the app starts
       initContainers:
         - name: wait-for-postgres
@@ -49,6 +54,11 @@ spec:
           ports:
             - containerPort: 8000
               name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           env:
             - name: DATABASE_URL
               valueFrom:

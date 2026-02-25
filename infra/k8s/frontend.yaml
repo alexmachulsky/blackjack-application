@@ -21,12 +21,23 @@ spec:
       labels:
         app: frontend
     spec:
+      # Pod-level security: non-root, seccomp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101      # nginx user in nginx:alpine
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: frontend
           image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:frontend-1.0.13
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests:
               cpu: 50m
@@ -37,13 +48,13 @@ spec:
           readinessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 10
             periodSeconds: 30
 
@@ -59,12 +70,14 @@ metadata:
   annotations:
     # Create NLB instead of Classic LB
     service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    # Ensure NLB is placed in public subnets
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
 spec:
   type: LoadBalancer
   selector:
     app: frontend
   ports:
     - port: 80
-      targetPort: 80
+      targetPort: 8080
       protocol: TCP
       name: http

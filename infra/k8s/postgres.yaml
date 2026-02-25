@@ -13,6 +13,7 @@ metadata:
 provisioner: ebs.csi.aws.com
 parameters:
   type: gp3
+  encrypted: "true"
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
 reclaimPolicy: Retain
@@ -36,12 +37,22 @@ spec:
       labels:
         app: postgres
     spec:
+      securityContext:
+        runAsUser: 70       # postgres user in postgres:alpine
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: postgres:15-alpine
           ports:
             - containerPort: 5432
               name: postgres
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           env:
             - name: POSTGRES_USER
               valueFrom:

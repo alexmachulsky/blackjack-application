@@ -68,11 +68,11 @@ DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/$
 
 # ── 1. Namespace ─────────────────────────────────────────────────────────────
 echo ""
-echo "📦 [1/5] Creating namespace..."
+echo "📦 [1/6] Creating namespace..."
 kubectl apply -f "$SCRIPT_DIR/namespace.yaml"
 
 # ── 2. Secrets ───────────────────────────────────────────────────────────────
-echo "🔑 [2/5] Creating Kubernetes secrets..."
+echo "🔑 [2/6] Creating Kubernetes secrets..."
 kubectl -n "$NAMESPACE" create secret generic blackjack-secrets \
   --from-literal=POSTGRES_USER="$POSTGRES_USER" \
   --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
@@ -81,19 +81,23 @@ kubectl -n "$NAMESPACE" create secret generic blackjack-secrets \
   --from-literal=SECRET_KEY="$SECRET_KEY" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# ── 3. PostgreSQL ────────────────────────────────────────────────────────────
-echo "🐘 [3/5] Deploying PostgreSQL..."
+# ── 3. Network Policies ─────────────────────────────────────────────────────
+echo "🛡️  [3/6] Applying network policies..."
+kubectl apply -f "$SCRIPT_DIR/network-policy.yaml"
+
+# ── 4. PostgreSQL ────────────────────────────────────────────────────────────
+echo "🐘 [4/6] Deploying PostgreSQL..."
 kubectl apply -f "$SCRIPT_DIR/postgres.yaml"
 echo "   Waiting for PostgreSQL to be ready..."
 kubectl -n "$NAMESPACE" rollout status statefulset/postgres --timeout=180s
 
-# ── 4. Backend ───────────────────────────────────────────────────────────────
-echo "⚙️  [4/5] Deploying backend..."
+# ── 5. Backend ───────────────────────────────────────────────────────────────
+echo "⚙️  [5/6] Deploying backend..."
 kubectl apply -f "$SCRIPT_DIR/backend.yaml"
 kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=120s
 
-# ── 5. Frontend + NLB ────────────────────────────────────────────────────────
-echo "🌐 [5/5] Deploying frontend (+ NLB provisioning)..."
+# ── 6. Frontend + NLB ────────────────────────────────────────────────────────
+echo "🌐 [6/6] Deploying frontend (+ NLB provisioning)..."
 kubectl apply -f "$SCRIPT_DIR/frontend.yaml"
 kubectl -n "$NAMESPACE" rollout status deployment/frontend --timeout=120s
 
