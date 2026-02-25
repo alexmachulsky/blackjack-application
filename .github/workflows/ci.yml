@@ -162,7 +162,7 @@ jobs:
   E2E-tests:
     name: E2E Smoke Tests (${{ github.ref_name }})
     needs: Push-to-ECR
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.Push-to-ECR.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
@@ -314,7 +314,7 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   Push-to-ECR:
     name: Push to ECR (${{ github.ref_name }})
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.Package-application.result == 'success'
     needs: Package-application
     runs-on: ubuntu-latest
     permissions:
