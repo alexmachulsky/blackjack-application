@@ -20,5 +20,9 @@ USER appuser
 
 EXPOSE 8000
 
+# Bake the commit SHA into the image — guarantees a unique digest on every build
+ARG BUILD_SHA=unknown
+ENV BUILD_SHA=${BUILD_SHA}
+
 # Production entrypoint — omit --reload (handled by docker-compose dev override)
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

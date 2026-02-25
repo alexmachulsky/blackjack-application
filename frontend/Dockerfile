@@ -27,4 +27,8 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
+# Bake the commit SHA into the image — guarantees a unique digest on every build
+ARG BUILD_SHA=unknown
+ENV BUILD_SHA=${BUILD_SHA}
+
 CMD ["nginx", "-g", "daemon off;"]
