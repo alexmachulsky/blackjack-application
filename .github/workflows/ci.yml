@@ -22,20 +22,6 @@ concurrency:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
-  #  OPTIONAL — Dependency Review (PR only, runs in parallel with build)
-  #  Intentionally isolated: never blocks the main pipeline chain.
-  # ─────────────────────────────────────────────────────────────────────────
-  dependency-review:
-    name: Dependency Review (PR)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Review dependency changes
-        uses: actions/dependency-review-action@v4
-
-  # ─────────────────────────────────────────────────────────────────────────
   #  JOB 1 — Build & Test
   #  Lint, pytest, pip-audit, Trivy, /ready smoke
   # ─────────────────────────────────────────────────────────────────────────
