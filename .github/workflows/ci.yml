@@ -280,12 +280,13 @@ jobs:
   #  • Update image tags in the GitOps repo (blackjack-k8s/values.yaml)
   #
   #  Required secrets (Settings → Secrets and variables → Actions):
-  #    AWS_ACCESS_KEY_ID       IAM key with ecr:GetAuthorizationToken + ecr:Push
+  #    AWS_ACCESS_KEY_ID       IAM key with ecr-public:GetAuthorizationToken + ecr-public:BatchCheckLayerAvailability + ecr-public:PutImage
   #    AWS_SECRET_ACCESS_KEY   Corresponding secret
-  #    ECR_REGION              e.g. ap-south-1
-  #    ECR_BACKEND_URI         Full URI: <account>.dkr.ecr.<region>.amazonaws.com/blackjack-backend
-  #    ECR_FRONTEND_URI        Full URI: <account>.dkr.ecr.<region>.amazonaws.com/blackjack-frontend
   #    GITOPS_PAT              GitHub PAT with repo scope on blackjack-k8s
+  #
+  #  ECR Public registry: public.ecr.aws/i8o7r4r1/blackjack-application
+  #  Tags used: backend-<version>, frontend-<version>, backend-latest, frontend-latest
+  #  NOTE: ECR Public API must always be called with --region us-east-1
   # ───────────────────────────────────────────────────────────────────────────
   Push-to-ECR:
     name: Push to ECR (${{ github.ref_name }})
@@ -309,12 +310,13 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.ECR_REGION }}
+          # ECR Public API must always use us-east-1 regardless of deployment region
+          aws-region: us-east-1
 
-      - name: Login to Amazon ECR
+      - name: Login to Amazon ECR Public
         run: |
-          aws ecr get-login-password --region ${{ secrets.ECR_REGION }} | \
-            docker login --username AWS --password-stdin ${{ secrets.ECR_BACKEND_URI }}
+          aws ecr-public get-login-password --region us-east-1 | \
+            docker login --username AWS --password-stdin public.ecr.aws
 
       - name: Compute next semantic version
         id: version
@@ -336,8 +338,8 @@ jobs:
           context: ./backend
           push: true
           tags: |
-            ${{ secrets.ECR_BACKEND_URI }}:latest
-            ${{ secrets.ECR_BACKEND_URI }}:${{ steps.version.outputs.tag }}
+            public.ecr.aws/i8o7r4r1/blackjack-application:backend-latest
+            public.ecr.aws/i8o7r4r1/blackjack-application:backend-${{ steps.version.outputs.tag }}
           cache-from: type=gha,scope=backend
 
       - name: Rebuild and push frontend image
@@ -346,8 +348,8 @@ jobs:
           context: ./frontend
           push: true
           tags: |
-            ${{ secrets.ECR_FRONTEND_URI }}:latest
-            ${{ secrets.ECR_FRONTEND_URI }}:${{ steps.version.outputs.tag }}
+            public.ecr.aws/i8o7r4r1/blackjack-application:frontend-latest
+            public.ecr.aws/i8o7r4r1/blackjack-application:frontend-${{ steps.version.outputs.tag }}
           cache-from: type=gha,scope=frontend
 
       - name: Create and push Git tag

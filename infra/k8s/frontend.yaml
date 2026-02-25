@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: ghcr.io/alexmachulsky/blackjack-frontend:latest
+          image: public.ecr.aws/i8o7r4r1/blackjack-application:frontend-latest
           ports:
             - containerPort: 80
               name: http

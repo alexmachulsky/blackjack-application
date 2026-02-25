@@ -35,7 +35,7 @@ spec:
               done
               echo "PostgreSQL is ready!"
         - name: migrate
-          image: ghcr.io/alexmachulsky/blackjack-backend:latest
+          image: public.ecr.aws/i8o7r4r1/blackjack-application:backend-latest
           command: ["alembic", "upgrade", "head"]
           env:
             - name: DATABASE_URL
