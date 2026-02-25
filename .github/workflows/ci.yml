@@ -10,24 +10,21 @@ on:
       - main
 
 # Default: all jobs get read-only access.
-# The Push-to-ECR job overrides this with contents: write for git tag creation.
+# Push-to-ECR overrides with contents: write for git tag creation.
 permissions:
   contents: read
 
 # Cancel in-flight runs on the same branch on every new push.
-# Never cancel a run that is already deploying main.
+# Never cancel a run already deploying main.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  JOB 1 — Build & Test
-#  • Install Python dependencies
-#  • Lint (ruff + black)
-#  • Run full pytest suite (unit + integration) against SQLite
-#  • Start the backend with uvicorn and verify /health responds
-# ─────────────────────────────────────────────────────────────────────────────
 jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  #  OPTIONAL — Dependency Review (PR only, runs in parallel with build)
+  #  Intentionally isolated: never blocks the main pipeline chain.
+  # ─────────────────────────────────────────────────────────────────────────
   dependency-review:
     name: Dependency Review (PR)
     if: github.event_name == 'pull_request'
@@ -35,14 +32,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Review dependency changes
         uses: actions/dependency-review-action@v4
 
-  Build-application:
+  # ─────────────────────────────────────────────────────────────────────────
+  #  JOB 1 — Build & Test
+  #  Lint, pytest, pip-audit, Trivy, /ready smoke
+  # ─────────────────────────────────────────────────────────────────────────
+  build:
     name: Build & Test (${{ github.ref_name }})
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -92,37 +91,33 @@ jobs:
           exit-code: 1
           format: table
 
-      - name: Start backend (health check)
+      - name: Start backend (readiness check)
         env:
           DATABASE_URL: sqlite:///./smoke.db
           SECRET_KEY: ci-build-secret-key-minimum-32-characters-long
           ENVIRONMENT: testing
         run: |
           nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
-          echo "Waiting for backend to start..."
           for i in {1..30}; do
             if curl -sf http://localhost:8000/ready > /dev/null; then
-              echo "✅ Backend is up! (attempt $i)"
+              echo "Backend is up (attempt $i)"
               break
             fi
-            echo "⏳ Still waiting... ($i)"
+            echo "Waiting... ($i)"
             sleep 1
           done
           curl --fail http://localhost:8000/ready || \
-            { echo "❌ Backend did not respond!"; cat uvicorn.log; exit 1; }
+            { echo "Backend did not respond"; cat uvicorn.log; exit 1; }
         working-directory: backend
 
-  # ───────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────
   #  JOB 2 — Package
-  #  • Build backend and frontend Docker images using Buildx
-  #  • GHA layer cache keeps repeat builds fast
-  # ───────────────────────────────────────────────────────────────────────────
-  Package-application:
+  #  Build backend + frontend Docker images and cache layers for reuse
+  # ─────────────────────────────────────────────────────────────────────────
+  package:
     name: Package (${{ github.ref_name }})
-    needs: [dependency-review, Build-application]
-    if: always() && needs.Build-application.result == 'success' && (github.event_name != 'pull_request' || needs.dependency-review.result == 'success')
+    needs: build
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -135,7 +130,7 @@ jobs:
         with:
           context: ./backend
           push: false
-          tags: blackjack-backend:latest
+          tags: blackjack-backend:ci
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
@@ -144,181 +139,24 @@ jobs:
         with:
           context: ./frontend
           push: false
-          tags: blackjack-frontend:latest
+          tags: blackjack-frontend:ci
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
-      - name: Cleanup Docker
-        run: |
-          docker system prune -af
-          docker builder prune -af
-
-  # ───────────────────────────────────────────────────────────────────────────
-  #  JOB 3 — E2E Smoke Tests
-  #  • Spin up postgres + backend via docker compose
-  #  • Run curl smoke tests against the live HTTP API
-  #  • Tear down always runs (even on failure)
-  # ───────────────────────────────────────────────────────────────────────────
-  E2E-tests:
-    name: E2E Smoke Tests (${{ github.ref_name }})
-    needs: Push-to-ECR
-    if: github.ref == 'refs/heads/main' && needs.Push-to-ECR.result == 'success'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # Write ephemeral CI credentials — never used outside this job
-      - name: Create .env for stack
-        run: |
-          cat > .env <<'EOF'
-          POSTGRES_USER=blackjack
-          POSTGRES_PASSWORD=blackjack_ci_pw
-          POSTGRES_DB=blackjack
-          DATABASE_URL=postgresql://blackjack:blackjack_ci_pw@postgres:5432/blackjack
-          SECRET_KEY=ci-e2e-secret-key-32-characters-minimum
-          ALGORITHM=HS256
-          ACCESS_TOKEN_EXPIRE_MINUTES=30
-          ENVIRONMENT=testing
-          LOG_LEVEL=WARNING
-          EOF
-          # Strip leading whitespace from each line (YAML indentation artefact)
-          sed -i 's/^[[:space:]]*//' .env
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1
-
-      - name: Login to Amazon ECR (private)
-        run: |
-          aws ecr get-login-password --region ap-south-1 | \
-            docker login --username AWS --password-stdin \
-            904233124111.dkr.ecr.ap-south-1.amazonaws.com
-
-      - name: Pull backend image from ECR
-        run: |
-          docker pull 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-${{ needs.Push-to-ECR.outputs.tag }}
-          echo "✅ Pulled backend-${{ needs.Push-to-ECR.outputs.tag }} from ECR"
-
-      - name: Start stack using ECR image (postgres + backend)
-        run: |
-          IMAGE_TAG=${{ needs.Push-to-ECR.outputs.tag }} \
-            docker compose -f docker-compose.yml -f docker-compose.ecr.yml \
-            up --no-build -d postgres backend
-
-      - name: Wait for backend health
-        run: |
-          echo "Waiting for backend to start and connect to Postgres..."
-          for i in {1..30}; do
-            if curl -sf http://localhost:8001/ready > /dev/null; then
-              echo "✅ Backend is up AND connected to Postgres! (attempt $i)"
-              break
-            fi
-            echo "⏳ Still waiting... ($i)"
-            sleep 2
-          done
-          curl --fail http://localhost:8001/ready || \
-            { echo "❌ Backend did not respond!"; docker compose logs backend; exit 1; }
-
-      - name: Smoke — GET /ready → 200
-        run: |
-          S=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8001/ready)
-          if [ "$S" = "200" ]; then
-            echo "✅ /ready → 200"
-          else
-            echo "❌ /ready → $S"
-            exit 1
-          fi
-
-      - name: Smoke — GET /health → 200
-        run: |
-          S=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8001/health)
-          if [ "$S" = "200" ]; then
-            echo "✅ /health → 200"
-          else
-            echo "❌ /health → $S"
-            exit 1
-          fi
-
-      - name: Smoke — POST /auth/register → 201
-        run: |
-          S=$(curl -sf -o /dev/null -w "%{http_code}" \
-            -X POST http://localhost:8001/auth/register \
-            -H "Content-Type: application/json" \
-            -d '{"email":"smoke@example.com","password":"SmokePass123!"}')
-          if [ "$S" = "201" ]; then
-            echo "✅ /auth/register → 201"
-          else
-            echo "❌ /auth/register → $S"
-            exit 1
-          fi
-
-      - name: Smoke — POST /auth/login → JWT
-        run: |
-          R=$(curl -sf \
-            -X POST http://localhost:8001/auth/login \
-            -H "Content-Type: application/json" \
-            -d '{"email":"smoke@example.com","password":"SmokePass123!"}')
-          echo "$R" | python3 -c \
-            "import sys, json; d=json.load(sys.stdin); assert 'access_token' in d, 'no token'"
-          echo "✅ /auth/login → JWT issued"
-
-      - name: Smoke — GET /stats unauthenticated → 401
-        run: |
-          S=$(curl -o /dev/null -w "%{http_code}" http://localhost:8001/stats)
-          if [ "$S" = "401" ]; then
-            echo "✅ /stats unauth → 401"
-          else
-            echo "❌ /stats → $S"
-            exit 1
-          fi
-
-      - name: Smoke — POST /game/start unauthenticated → 401
-        run: |
-          S=$(curl -o /dev/null -w "%{http_code}" \
-            -X POST http://localhost:8001/game/start \
-            -H "Content-Type: application/json" \
-            -d '{"bet_amount":50}')
-          if [ "$S" = "401" ]; then
-            echo "✅ /game/start unauth → 401"
-          else
-            echo "❌ /game/start → $S"
-            exit 1
-          fi
-
-      - name: Remove E2E environment
-        if: always()
-        run: |
-          IMAGE_TAG=${{ needs.Push-to-ECR.outputs.tag }} \
-            docker compose -f docker-compose.yml -f docker-compose.ecr.yml \
-            down -v --remove-orphans
-
-  # ───────────────────────────────────────────────────────────────────────────
-  #  JOB 4 — Push to ECR  (main branch only)
-  #  • Rebuild images from GHA cache and push to Amazon ECR
-  #  • Auto-increment semantic version tag (patch bump)
-  #  • Create and push a Git tag for traceability
-  #  • Update image tags in the GitOps repo (blackjack-k8s/values.yaml)
+  # ─────────────────────────────────────────────────────────────────────────
+  #  JOB 3 — Push to ECR  (main only)
+  #  Versioned immutable tags pushed to private ECR, then k8s manifests updated
   #
-  #  Required secrets (Settings → Secrets and variables → Actions):
-  #    AWS_ACCESS_KEY_ID       IAM key with ecr:GetAuthorizationToken + ecr:BatchCheckLayerAvailability + ecr:PutImage
-  #    AWS_SECRET_ACCESS_KEY   Corresponding secret
-  #
-  #  Private ECR: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application
-  #  Tags: backend-<version>, frontend-<version>  (immutable — no latest tag)
-  #  After push: CI commits updated image tags back into infra/k8s/ manifests
-  # ───────────────────────────────────────────────────────────────────────────
-  Push-to-ECR:
+  #  Required secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+  #  ECR: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application
+  # ─────────────────────────────────────────────────────────────────────────
+  push-to-ecr:
     name: Push to ECR (${{ github.ref_name }})
-    if: github.ref == 'refs/heads/main' && needs.Package-application.result == 'success'
-    needs: Package-application
+    needs: package
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
-      contents: write # needed to create and push git version tags
+      contents: write
     outputs:
       tag: ${{ steps.version.outputs.tag }}
 
@@ -326,7 +164,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history required for git tag operations
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -355,19 +193,18 @@ jobs:
             IFS='.' read -r major minor patch <<< "$latest"
             next="${major}.${minor}.$((patch + 1))"
           fi
-          echo "✅ New version: $next"
+          echo "New version: $next"
           echo "tag=$next" >> "$GITHUB_OUTPUT"
 
-      - name: Rebuild and push backend image
+      - name: Push backend image to ECR
         uses: docker/build-push-action@v6
         with:
           context: ./backend
           push: true
-          # Immutable tags only — no :latest (would fail on second push)
           tags: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-${{ steps.version.outputs.tag }}
           cache-from: type=gha,scope=backend
 
-      - name: Rebuild and push frontend image
+      - name: Push frontend image to ECR
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
@@ -375,7 +212,7 @@ jobs:
           tags: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:frontend-${{ steps.version.outputs.tag }}
           cache-from: type=gha,scope=frontend
 
-      - name: Create and push Git tag
+      - name: Create and push Git version tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -386,13 +223,123 @@ jobs:
         run: |
           ECR="904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application"
           VER="${{ steps.version.outputs.tag }}"
-
-          # Updates both the migrate init container and main container in backend.yaml
           sed -i "s|image: ${ECR}:backend-.*|image: ${ECR}:backend-${VER}|g" infra/k8s/backend.yaml
           sed -i "s|image: ${ECR}:frontend-.*|image: ${ECR}:frontend-${VER}|g" infra/k8s/frontend.yaml
-
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add infra/k8s/backend.yaml infra/k8s/frontend.yaml
           git commit -m "ci: bump k8s image tags to ${VER} [skip ci]"
           git push origin main
+
+  # ─────────────────────────────────────────────────────────────────────────
+  #  JOB 4 — E2E Smoke Tests  (main only)
+  #  Pulls exact versioned image from ECR, runs 6 smoke tests, then tears down
+  # ─────────────────────────────────────────────────────────────────────────
+  e2e:
+    name: E2E Smoke Tests (${{ github.ref_name }})
+    needs: push-to-ecr
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env for stack
+        run: |
+          cat > .env << 'EOF'
+          POSTGRES_USER=blackjack
+          POSTGRES_PASSWORD=blackjack_ci_pw
+          POSTGRES_DB=blackjack
+          DATABASE_URL=postgresql://blackjack:blackjack_ci_pw@postgres:5432/blackjack
+          SECRET_KEY=ci-e2e-secret-key-32-characters-minimum
+          ALGORITHM=HS256
+          ACCESS_TOKEN_EXPIRE_MINUTES=30
+          ENVIRONMENT=testing
+          LOG_LEVEL=WARNING
+          EOF
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Login to Amazon ECR (private)
+        run: |
+          aws ecr get-login-password --region ap-south-1 | \
+            docker login --username AWS --password-stdin \
+            904233124111.dkr.ecr.ap-south-1.amazonaws.com
+
+      - name: Pull backend image from ECR
+        run: |
+          docker pull 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-${{ needs.push-to-ecr.outputs.tag }}
+          echo "Pulled backend-${{ needs.push-to-ecr.outputs.tag }} from ECR"
+
+      - name: Start stack (postgres + ECR backend image)
+        run: |
+          IMAGE_TAG=${{ needs.push-to-ecr.outputs.tag }} \
+            docker compose -f docker-compose.yml -f docker-compose.ecr.yml \
+            up --no-build -d postgres backend
+
+      - name: Wait for backend /ready
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://localhost:8001/ready > /dev/null; then
+              echo "Backend ready (attempt $i)"
+              break
+            fi
+            echo "Waiting... ($i)"
+            sleep 2
+          done
+          curl --fail http://localhost:8001/ready || \
+            { echo "Backend did not start"; docker compose logs backend; exit 1; }
+
+      - name: Smoke — GET /ready → 200
+        run: |
+          S=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8001/ready)
+          [ "$S" = "200" ] && echo "OK /ready → 200" || { echo "FAIL /ready → $S"; exit 1; }
+
+      - name: Smoke — GET /health → 200
+        run: |
+          S=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8001/health)
+          [ "$S" = "200" ] && echo "OK /health → 200" || { echo "FAIL /health → $S"; exit 1; }
+
+      - name: Smoke — POST /auth/register → 201
+        run: |
+          S=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -X POST http://localhost:8001/auth/register \
+            -H "Content-Type: application/json" \
+            -d '{"email":"smoke@example.com","password":"SmokePass123!"}')
+          [ "$S" = "201" ] && echo "OK /auth/register → 201" || { echo "FAIL /auth/register → $S"; exit 1; }
+
+      - name: Smoke — POST /auth/login → JWT
+        run: |
+          R=$(curl -sf \
+            -X POST http://localhost:8001/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"smoke@example.com","password":"SmokePass123!"}')
+          echo "$R" | python3 -c \
+            "import sys, json; d=json.load(sys.stdin); assert 'access_token' in d, 'no token'"
+          echo "OK /auth/login → JWT issued"
+
+      - name: Smoke — GET /stats unauthenticated → 401
+        run: |
+          S=$(curl -o /dev/null -w "%{http_code}" http://localhost:8001/stats)
+          [ "$S" = "401" ] && echo "OK /stats unauth → 401" || { echo "FAIL /stats → $S"; exit 1; }
+
+      - name: Smoke — POST /game/start unauthenticated → 401
+        run: |
+          S=$(curl -o /dev/null -w "%{http_code}" \
+            -X POST http://localhost:8001/game/start \
+            -H "Content-Type: application/json" \
+            -d '{"bet_amount":50}')
+          [ "$S" = "401" ] && echo "OK /game/start unauth → 401" || { echo "FAIL /game/start → $S"; exit 1; }
+
+      - name: Teardown
+        if: always()
+        run: |
+          IMAGE_TAG=${{ needs.push-to-ecr.outputs.tag }} \
+            docker compose -f docker-compose.yml -f docker-compose.ecr.yml \
+            down -v --remove-orphans
