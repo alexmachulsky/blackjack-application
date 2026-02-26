@@ -312,14 +312,14 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 
 .table-markings {
   position: absolute;
-  top: 0; left: 0; right: 0;
+  top: 48px; left: 0; right: 0;
   z-index: 1;
   pointer-events: none;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 14px;
-  gap: 5px;
+  padding-top: 4px;
+  gap: 4px;
 }
 
 .marking-main {
@@ -356,7 +356,7 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 
 .table-limits {
   position: absolute;
-  top: 14px;
+  top: 52px;
   left: 22px;
   z-index: 2;
   background: rgba(0,0,0,0.6);
@@ -380,8 +380,8 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 
 .deck-prop {
   position: absolute;
-  top: 16px;
-  left: 80px;
+  top: 54px;
+  right: 22px;
   z-index: 2;
   width: 36px;
   height: 52px;
@@ -412,7 +412,7 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  margin-top: 76px;
+  margin-top: 110px;
 }
 
 .zone-label {
@@ -1067,9 +1067,10 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 9px 18px;
-  background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 100%);
+  padding: 10px 18px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 80%, rgba(0,0,0,0) 100%);
   pointer-events: none;
+  min-height: 44px;
 }
 .top-bar-brand {
   font-family: 'Cinzel', 'Georgia', serif;
@@ -1081,7 +1082,7 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   text-shadow: 0 0 16px rgba(212,175,55,0.5), 0 0 40px rgba(212,175,55,0.2);
   pointer-events: all;
 }
-.top-bar-stats { display: flex; gap: 22px; }
+.top-bar-stats { display: flex; gap: 22px; pointer-events: all; }
 .stat-pill { display: flex; flex-direction: column; align-items: center; line-height: 1.3; }
 .stat-pill .stat-label {
   font-family: 'Inter', sans-serif;
