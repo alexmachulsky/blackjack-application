@@ -3,6 +3,9 @@
 *.tfstate.*
 *.tfstate.backup
 
+# Plan files can contain sensitive values — never commit
+*.tfplan
+
 # Local variable files contain secrets
 terraform.tfvars
 *.auto.tfvars
