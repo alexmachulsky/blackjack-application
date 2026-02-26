@@ -30,7 +30,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:frontend-1.0.17
+          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:frontend-1.0.18
           ports:
             - containerPort: 8080
               name: http
