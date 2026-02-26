@@ -5,7 +5,8 @@
 #
 #   aws s3api create-bucket \
 #     --bucket <your-tf-state-bucket> \
-#     --region ap-south-1
+#     --region ap-south-1 \
+#     --create-bucket-configuration LocationConstraint=ap-south-1
 #
 #   aws s3api put-bucket-versioning \
 #     --bucket <your-tf-state-bucket> \

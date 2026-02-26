@@ -36,8 +36,14 @@ spec:
               name: http
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          volumeMounts:
+            - name: nginx-tmp
+              mountPath: /tmp/nginx
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
           resources:
             requests:
               cpu: 50m
@@ -57,6 +63,15 @@ spec:
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 30
+      volumes:
+        - name: nginx-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 10Mi
+        - name: nginx-cache
+          emptyDir:
+            medium: Memory
+            sizeLimit: 10Mi
 
 ---
 # LoadBalancer Service — creates an AWS NLB automatically

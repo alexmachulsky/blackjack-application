@@ -23,21 +23,17 @@ Internet
 
 ```
 infra/
-├── docker-compose.aws.yml          # Legacy: EC2-based deploy override
 ├── k8s/                            # Kubernetes manifests
 │   ├── namespace.yaml
+│   ├── network-policy.yaml         # Default-deny + allow rules
 │   ├── postgres.yaml               # StatefulSet + headless Service + gp3 StorageClass
 │   ├── backend.yaml                # Deployment + ClusterIP Service
 │   ├── frontend.yaml               # Deployment + LoadBalancer Service (NLB)
 │   └── deploy.sh                   # One-command deployment script
 └── terraform/
     ├── modules/
-    │   ├── vpc/                    # VPC, subnets (with EKS discovery tags), IGW
-    │   ├── eks/                    # EKS cluster, node group, OIDC, EBS CSI driver
-    │   ├── alb/                    # (legacy — kept for reference)
-    │   ├── ec2/                    # (legacy — kept for reference)
-    │   ├── rds/                    # (legacy — kept for reference)
-    │   └── security_groups/        # (legacy — kept for reference)
+    │   ├── vpc/                    # VPC, public+private subnets, IGW, fck-nat
+    │   └── eks/                    # EKS cluster, SPOT node group, OIDC, EBS CSI
     └── environments/
         └── staging/
             ├── backend.tf          # S3 remote state + provider config
@@ -53,12 +49,13 @@ infra/
 | Resource | Monthly Cost |
 |----------|-------------|
 | EKS control plane | $73.00 |
-| EC2 t3.small (1 node) | ~$15 |
-| NLB | ~$18 |
+| NLB | ~$18.00 |
+| EC2 t3.small SPOT (1 node) | ~$5.00 |
+| fck-nat t4g.nano (NAT instance) | ~$3.00 |
 | EBS gp3 5 GB (PostgreSQL) | ~$0.40 |
-| **Total** | **~$107/month** |
+| **Total** | **~$100/month** |
 
-> **Cost-saving tip**: Stop the EKS node group when not in use:
+> **Cost-saving tip**: Scale the node group to 0 when idle to reduce to ~$73/month (control plane only):
 > ```bash
 > aws eks update-nodegroup-config \
 >   --cluster-name blackjack-staging \
@@ -66,7 +63,9 @@ infra/
 >   --scaling-config minSize=0,maxSize=2,desiredSize=0 \
 >   --region ap-south-1
 > ```
-> This reduces cost to ~$73/month (control plane only). Scale back up by setting desiredSize=1.
+> Scale back up with `desiredSize=1`.
+>
+> **Production upgrade**: Replace fck-nat with the managed [AWS NAT Gateway](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html) (~$33/month) for built-in HA and auto-scaling.
 
 ## Prerequisites
 

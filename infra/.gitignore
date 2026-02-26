@@ -11,7 +11,7 @@ terraform.tfvars
 .terraform/
 
 # Lock file should be committed for reproducibility (see: terraform.io/language/files/dependency-lock)
-# .terraform.lock.hcl
+# Do NOT ignore .terraform.lock.hcl — it should be committed
 
 # Crash logs
 crash.log
