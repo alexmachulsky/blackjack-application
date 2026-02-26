@@ -32,7 +32,7 @@ infra/
 │   └── deploy.sh                   # One-command deployment script
 └── terraform/
     ├── modules/
-    │   ├── vpc/                    # VPC, public+private subnets, IGW, fck-nat
+    │   ├── vpc/                    # VPC, public+private subnets, IGW, NAT GW
     │   └── eks/                    # EKS cluster, SPOT node group, OIDC, EBS CSI
     └── environments/
         └── staging/
@@ -49,23 +49,23 @@ infra/
 | Resource | Monthly Cost |
 |----------|-------------|
 | EKS control plane | $73.00 |
+| NAT Gateway (hourly + data) | ~$33.00 |
 | NLB | ~$18.00 |
 | EC2 t3.small SPOT (1 node) | ~$5.00 |
-| fck-nat t4g.nano (NAT instance) | ~$3.00 |
 | EBS gp3 5 GB (PostgreSQL) | ~$0.40 |
-| **Total** | **~$100/month** |
+| **Total** | **~$130/month** |
 
-> **Cost-saving tip**: Scale the node group to 0 when idle to reduce to ~$73/month (control plane only):
-> ```bash
-> aws eks update-nodegroup-config \
->   --cluster-name blackjack-staging \
->   --nodegroup-name blackjack-staging-nodes \
->   --scaling-config minSize=0,maxSize=2,desiredSize=0 \
->   --region ap-south-1
-> ```
-> Scale back up with `desiredSize=1`.
->
-> **Production upgrade**: Replace fck-nat with the managed [AWS NAT Gateway](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-nat-gateway.html) (~$33/month) for built-in HA and auto-scaling.
+> **Cost-saving tips**:
+> - **Stop nodes when idle**: Scale the node group to 0 to reduce to ~$106/month (control plane + NAT + NLB):
+>   ```bash
+>   aws eks update-nodegroup-config \
+>     --cluster-name blackjack-staging \
+>     --nodegroup-name blackjack-staging-nodes \
+>     --scaling-config minSize=0,maxSize=2,desiredSize=0 \
+>     --region ap-south-1
+>   ```
+>   Scale back up with `desiredSize=1`.
+> - **NAT Gateway** is the second-largest cost (~$33/month). For a personal project, consider replacing it with [fck-nat](https://fck-nat.dev/) on a t4g.nano (~$3/month) to save ~$30/month.
 
 ## Prerequisites
 
