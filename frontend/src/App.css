@@ -454,6 +454,7 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  position: relative;
 }
 
 .bet-ring {
@@ -472,6 +473,78 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   box-shadow:
     0 0 24px rgba(212,175,55,0.1),
     inset 0 0 20px rgba(0,0,0,0.25);
+}
+
+.table-chip-stack {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.chip-stack-pile {
+  position: relative;
+  width: 34px;
+  height: 46px;
+}
+
+.table-chip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--chip-level, 0) * 4px);
+  transform: translateX(-50%) rotate(var(--chip-tilt, 0deg));
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px dashed rgba(255,255,255,0.28);
+  outline: 2px solid rgba(0,0,0,0.45);
+  box-shadow:
+    0 4px 10px rgba(0,0,0,0.58),
+    inset 0 -2px 4px rgba(0,0,0,0.35),
+    inset 0 1px 2px rgba(255,255,255,0.16);
+}
+
+.table-chip::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.16);
+}
+
+.chip-stack-count {
+  position: absolute;
+  right: -8px;
+  bottom: 0;
+  background: rgba(0,0,0,0.78);
+  border: 1px solid rgba(212,175,55,0.35);
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.53rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.88);
+  letter-spacing: 0.5px;
+}
+
+.table-chip-total {
+  margin-left: 6px;
+  margin-bottom: 2px;
+  padding: 2px 8px;
+  border-radius: 11px;
+  background: rgba(0,0,0,0.62);
+  border: 1px solid rgba(212,175,55,0.35);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.63rem;
+  font-weight: 700;
+  color: var(--gold-light);
+  letter-spacing: 0.7px;
+  text-shadow: 0 0 8px rgba(212,175,55,0.3);
 }
 
 /* ═══ PLAYER HAND (center of table) ══════════════════════════════════════ */
@@ -1083,6 +1156,60 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   pointer-events: all;
 }
 .top-bar-stats { display: flex; gap: 22px; pointer-events: all; }
+.top-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: all;
+}
+
+.sound-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,0,0,0.4);
+  border: 1px solid rgba(212,175,55,0.18);
+  border-radius: 8px;
+  padding: 4px 8px;
+  backdrop-filter: blur(4px);
+}
+
+.btn-sound {
+  padding: 4px 10px;
+  background: rgba(212,175,55,0.12);
+  border: 1px solid rgba(212,175,55,0.3);
+  color: rgba(245,220,130,0.9);
+  border-radius: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  transition: all 0.2s;
+}
+
+.btn-sound:hover {
+  background: rgba(212,175,55,0.2);
+  border-color: rgba(212,175,55,0.55);
+}
+
+.btn-sound.is-muted {
+  background: rgba(100,100,100,0.2);
+  border-color: rgba(180,180,180,0.28);
+  color: rgba(220,220,220,0.85);
+}
+
+.sound-slider {
+  width: 86px;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+
+.sound-slider:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .stat-pill { display: flex; flex-direction: column; align-items: center; line-height: 1.3; }
 .stat-pill .stat-label {
   font-family: 'Inter', sans-serif;
@@ -1123,6 +1250,13 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 @media (max-width: 600px) {
   .table-limits, .deck-prop { display: none; }
   .top-bar-stats { display: none; }
+  .sound-slider { display: none; }
+  .sound-controls { padding: 3px 6px; }
+  .top-bar-actions { gap: 6px; }
+  .table-chip-stack { top: 20px; gap: 5px; }
+  .chip-stack-pile { width: 28px; height: 40px; }
+  .table-chip { width: 28px; height: 28px; }
+  .table-chip-total { font-size: 0.55rem; padding: 2px 6px; }
   .bet-display-box { min-width: 80px; }
   .bottom-strip { gap: 8px; padding: 0 10px; }
   .btn-hit { width: 52px; height: 52px; }

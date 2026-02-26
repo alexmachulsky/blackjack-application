@@ -150,11 +150,14 @@ def test_game_start_with_valid_auth(client):
     assert response.status_code == 200
     body = response.json()
     assert "game_id" in body
-    assert body["status"] == "active"
+    assert body["status"] in ("active", "finished")
     assert body["bet_amount"] == 50.0
-    # Initial deal: player gets 2 cards; dealer shows only 1 (hole card hidden)
+    # Initial deal: player gets 2 cards; naturals may resolve immediately.
     assert len(body["player_hand"]) == 2
-    assert len(body["dealer_hand"]) == 1
+    if body["status"] == "active":
+        assert len(body["dealer_hand"]) == 1
+    else:
+        assert len(body["dealer_hand"]) >= 2
 
 
 def test_game_start_invalid_bet_returns_error(client):

@@ -387,7 +387,7 @@ def test_split_determine_winner_multiple_results():
 
 
 def test_split_double_down_on_split_hand():
-    """should allow double down on a 2-card split hand (current hand has exactly 2 cards)"""
+    """double down is not allowed after split under current house rules"""
     engine = GameEngine()
     engine.player_hands[0].add_card(Card(Rank.EIGHT, Suit.HEARTS))
     engine.player_hands[0].add_card(Card(Rank.EIGHT, Suit.SPADES))
@@ -396,8 +396,8 @@ def test_split_double_down_on_split_hand():
 
     engine.player_split()
 
-    # After split each hand has exactly 2 cards → double down is eligible
-    assert engine.can_double_down() is True
+    # After split each hand has exactly 2 cards, but double-down remains disabled
+    assert engine.can_double_down() is False
 
 
 def test_split_both_bust():

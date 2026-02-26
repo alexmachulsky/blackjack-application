@@ -78,7 +78,12 @@ def test_start_game_returns_game_state(client):
     assert "game_id" in data
     assert data["bet_amount"] == _BET
     assert len(data["player_hand"]) == 2
-    assert len(data["dealer_hand"]) == 1  # hole card hidden
+    if data["status"] == "active":
+        assert len(data["dealer_hand"]) == 1  # hole card hidden
+    else:
+        # Natural blackjack/dealer blackjack gets resolved on initial deal.
+        assert data["status"] == "finished"
+        assert len(data["dealer_hand"]) >= 2
 
 
 def test_start_game_deducts_balance(client):
@@ -381,6 +386,31 @@ def test_double_down_game_not_found_returns_404(client):
         "/game/double-down", headers=headers, json={"game_id": str(uuid.uuid4())}
     )
     assert resp.status_code == 404
+
+
+def test_double_down_after_split_returns_400(client):
+    headers = _make_headers(client)
+    start = _start_game(client, headers)
+    game_id = start["game_id"]
+
+    if start["status"] != "active":
+        pytest.skip("Initial deal resolved before split")
+
+    engine = _make_engine_with_hand(
+        player_cards=[Card(Rank.EIGHT, Suit.HEARTS), Card(Rank.EIGHT, Suit.CLUBS)],
+        dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SEVEN, Suit.DIAMONDS)],
+    )
+    active_games[str(game_id)] = engine
+
+    split_resp = client.post("/game/split", headers=headers, json={"game_id": game_id})
+    assert split_resp.status_code == 200
+    assert split_resp.json()["status"] == "active"
+
+    double_resp = client.post(
+        "/game/double-down", headers=headers, json={"game_id": game_id}
+    )
+    assert double_resp.status_code == 400
+    assert "double down" in double_resp.json()["detail"].lower()
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 from typing import List, Set, Tuple
+from decimal import Decimal
 import logging
 
 from app.services.deck import Card, Deck, Rank
@@ -74,6 +75,8 @@ class GameEngine:
         self.deck = Deck()
         # Phase 2: multi-hand list; single hand by default for backward compat
         self.player_hands: List[Hand] = [Hand()]
+        # Tracks wager per player hand (set by API layer when a game starts).
+        self.hand_bets: List[Decimal] = []
         self.current_hand_index: int = 0
         self.dealer_hand = Hand()
         self.game_over = False
@@ -114,9 +117,13 @@ class GameEngine:
     def can_double_down(self) -> bool:
         """
         True when the current active hand has exactly 2 cards and game is active.
-        Applies to both initial hands and split hands.
+        House rule: double-down is only allowed on the original (non-split) hand.
         """
-        return len(self.player_hand.cards) == 2 and not self.game_over
+        return (
+            len(self.player_hand.cards) == 2
+            and not self.game_over
+            and not self.is_split
+        )
 
     def player_double_down(self) -> Card:
         """

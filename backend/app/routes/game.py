@@ -136,7 +136,7 @@ def _build_active_state(game: Game, engine: GameEngine, user: User) -> GameState
     return GameState(
         game_id=str(game.id),
         status="active",
-        bet_amount=game.bet_amount,
+        bet_amount=float(game.bet_amount),
         player_hand=[CardSchema(**c) for c in state["player_hand"]],
         player_value=state["player_value"],
         dealer_hand=[CardSchema(**state["dealer_hand"][0])],  # hide hole card
@@ -161,20 +161,31 @@ def _finish_game(
     """
     Resolve a completed game:
     - Evaluate all hands via determine_winner()
-    - Pay out: each hand is valued at game.bet_amount (original bet per hand)
+    - Pay out using per-hand wagers (supports split + double-down correctly)
     - Update DB, remove from active_games
     """
     results = engine.determine_winner()  # List[Tuple[str, float]]
+    if len(engine.hand_bets) == len(results):
+        hand_bets = [Decimal(str(b)) for b in engine.hand_bets]
+    elif len(results) == 1:
+        hand_bets = [Decimal(str(game.bet_amount))]
+    else:
+        # Defensive fallback for mismatched in-memory state.
+        per_hand = Decimal(str(game.bet_amount)) / Decimal(str(len(results)))
+        hand_bets = [per_hand for _ in results]
 
-    # Each hand (split or not) is worth the original per-hand bet stored in game.bet_amount.
-    # For double-down the bet was already doubled in the DB before this helper is called,
-    # so the multiplied amount flows through naturally.
-    bet = Decimal(str(game.bet_amount))
-    total_payout = sum(bet * Decimal(str(multiplier)) for _, multiplier in results)
+    total_payout = sum(
+        hand_bets[i] * Decimal(str(multiplier))
+        for i, (_, multiplier) in enumerate(results)
+    )
     result_strings = [r for r, _ in results]
-    payout_list = [float(bet * Decimal(str(m))) for _, m in results]
+    payout_list = [
+        float(hand_bets[i] * Decimal(str(multiplier)))
+        for i, (_, multiplier) in enumerate(results)
+    ]
 
     user.balance += total_payout
+    game.bet_amount = sum(hand_bets, Decimal("0"))
 
     # Primary result string: single value for normal games, comma-joined for split
     primary_result = (
@@ -211,7 +222,7 @@ def _finish_game(
     return GameState(
         game_id=str(game.id),
         status="finished",
-        bet_amount=game.bet_amount,
+        bet_amount=float(game.bet_amount),
         player_hand=[CardSchema(**c) for c in state["player_hand"]],
         player_value=state["player_value"],
         dealer_hand=[CardSchema(**c) for c in state["dealer_hand"]],
@@ -267,6 +278,7 @@ def start_game(
 
     engine = GameEngine()
     engine.deal_initial_cards()
+    engine.hand_bets = [Decimal(str(game_data.bet_amount))]
     active_games[str(game.id)] = engine
 
     # Persist initial cards
@@ -302,23 +314,11 @@ def start_game(
     log_record.bet_amount = game_data.bet_amount
     logger.handle(log_record)
 
-    state = engine.get_game_state()
-    return GameState(
-        game_id=str(game.id),
-        status="active",
-        bet_amount=game_data.bet_amount,
-        player_hand=[CardSchema(**c) for c in state["player_hand"]],
-        player_value=state["player_value"],
-        dealer_hand=[CardSchema(**state["dealer_hand"][0])],  # show one dealer card
-        dealer_value=0,
-        result=None,
-        payout=None,
-        new_balance=float(current_user.balance),
-        # Phase 1: True if pair was dealt (player can split or double)
-        can_double_down=engine.can_double_down(),
-        can_split=state["can_split"],
-        is_split=False,
-    )
+    # Resolve naturals immediately on initial deal.
+    if engine.player_hand.is_blackjack() or engine.dealer_hand.is_blackjack():
+        return _finish_game(game, engine, current_user, db)
+
+    return _build_active_state(game, engine, current_user)
 
 
 @router.post("/hit", response_model=GameState)
@@ -421,15 +421,27 @@ def double_down(
             detail="Double down only available on initial hand",
         )
 
-    if current_user.balance < game.bet_amount:
+    if not engine.hand_bets:
+        engine.hand_bets = [Decimal(str(game.bet_amount))]
+
+    hand_idx = engine.current_hand_index
+    if hand_idx >= len(engine.hand_bets):
+        engine.hand_bets.extend(
+            [Decimal(str(game.bet_amount))] * (hand_idx + 1 - len(engine.hand_bets))
+        )
+
+    additional_bet = Decimal(str(engine.hand_bets[hand_idx]))
+
+    if current_user.balance < additional_bet:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Insufficient balance to double down",
         )
 
-    # Charge additional bet and double the stored bet amount
-    current_user.balance -= Decimal(str(game.bet_amount))
-    game.bet_amount = Decimal(str(game.bet_amount)) * 2
+    # Charge additional wager for the active hand, then update total wager.
+    current_user.balance -= additional_bet
+    engine.hand_bets[hand_idx] += additional_bet
+    game.bet_amount = sum(engine.hand_bets, Decimal("0"))
 
     # Deal one card and let dealer auto-play (inside engine)
     initial_dealer_cards = len(engine.dealer_hand.cards)
@@ -485,17 +497,27 @@ def split(
             detail="Can only split matching ranks",
         )
 
-    if current_user.balance < game.bet_amount:
+    hand0_bet = (
+        Decimal(str(engine.hand_bets[0]))
+        if engine.hand_bets
+        else Decimal(str(game.bet_amount))
+    )
+    if current_user.balance < hand0_bet:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Insufficient balance to split",
         )
 
     # Deduct additional bet for the second hand
-    current_user.balance -= Decimal(str(game.bet_amount))
+    current_user.balance -= hand0_bet
 
     # Perform the split (engine updates player_hands in place)
     card1, card2 = engine.player_split()
+    if not engine.hand_bets:
+        engine.hand_bets = [hand0_bet]
+    if len(engine.hand_bets) == 1:
+        engine.hand_bets.append(engine.hand_bets[0])
+    game.bet_amount = sum(engine.hand_bets, Decimal("0"))
 
     # Persist cards: after split, hand 0 has [original_card, card1]
     #                             hand 1 has [split_card, card2]
@@ -598,7 +620,7 @@ def get_game(
     return GameState(
         game_id=str(game.id),
         status=game.status,
-        bet_amount=game.bet_amount,
+        bet_amount=float(game.bet_amount),
         player_hand=[
             CardSchema(rank=c.card_rank, suit=c.card_suit) for c in primary_player_cards
         ],

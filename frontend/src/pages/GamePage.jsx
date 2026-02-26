@@ -1,6 +1,7 @@
 import { useState, useEffect, useContext } from 'react';
 import AuthContext from '../context/AuthContext';
 import { gameApi, statsApi } from '../services/api';
+import { soundFX } from '../services/soundEffects';
 
 /* ─── Suit map ───────────────────────────────────────────────────────────── */
 const SUIT  = { Hearts: '♥', Diamonds: '♦', Clubs: '♣', Spades: '♠' };
@@ -79,17 +80,116 @@ const CHIPS = [
   { val: 500, label: '$500', cls: 'chip-500'  },
 ];
 
+const TABLE_CHIP_DENOMS = [...CHIPS]
+  .map((chip) => ({
+    ...chip,
+    cents: Math.round(chip.val * 100),
+  }))
+  .sort((a, b) => b.cents - a.cents);
+
+function breakdownBetIntoChips(amount = 0) {
+  let remaining = Math.max(0, Math.round(amount * 100));
+  const stacks = [];
+
+  TABLE_CHIP_DENOMS.forEach((chip) => {
+    if (remaining <= 0) return;
+    const count = Math.floor(remaining / chip.cents);
+    if (count > 0) {
+      stacks.push({ ...chip, count });
+      remaining -= count * chip.cents;
+    }
+  });
+
+  if (remaining > 0) {
+    const smallest = TABLE_CHIP_DENOMS[TABLE_CHIP_DENOMS.length - 1];
+    const fallback = Math.ceil(remaining / smallest.cents);
+    const existing = stacks.find((stack) => stack.cents === smallest.cents);
+    if (existing) existing.count += fallback;
+    else stacks.push({ ...smallest, count: fallback });
+  }
+
+  return stacks;
+}
+
+function TableChipStack({ amount }) {
+  if (!amount || amount <= 0) return null;
+  const stacks = breakdownBetIntoChips(amount);
+
+  return (
+    <div className="table-chip-stack" aria-label={`Current bet ${amount.toFixed(2)}`}>
+      {stacks.map((stack, stackIndex) => {
+        const visible = Math.min(stack.count, 8);
+        return (
+          <div className="chip-stack-pile" key={stack.cents}>
+            {Array.from({ length: visible }).map((_, i) => (
+              <div
+                key={`${stack.cents}-${i}`}
+                className={`table-chip ${stack.cls}`}
+                style={{
+                  '--chip-level': i,
+                  '--chip-tilt': `${((stackIndex + i) % 2 === 0 ? 1 : -1) * 0.8}deg`,
+                }}
+              />
+            ))}
+            {stack.count > visible && (
+              <span className="chip-stack-count">x{stack.count}</span>
+            )}
+          </div>
+        );
+      })}
+      <span className="table-chip-total">${amount.toFixed(2)}</span>
+    </div>
+  );
+}
+
+const getVisiblePlayerCardCount = (state) => {
+  if (!state) return 0;
+  if (state.is_split && Array.isArray(state.player_hands)) {
+    return state.player_hands.reduce(
+      (total, hand) => total + (hand?.cards?.length ?? 0),
+      0,
+    );
+  }
+  return state.player_hand?.length ?? 0;
+};
+
+const getVisibleDealerCardCount = (state) => state?.dealer_hand?.length ?? 0;
+
+function playOutcomeSound(state) {
+  const combinedResults = Array.isArray(state?.results)
+    ? state.results.join(',')
+    : (state?.result ?? '');
+  const result = combinedResults.toLowerCase();
+
+  if (result.includes('blackjack')) {
+    soundFX.playBlackjack();
+  } else if (result.includes('win')) {
+    soundFX.playWin();
+  } else if (result.includes('push') || result.includes('tie')) {
+    soundFX.playPush();
+  } else {
+    soundFX.playLose();
+  }
+}
+
 /* ══════════════════════════════════════════════════════════════════════════ */
 export default function GamePage() {
   const { logout }            = useContext(AuthContext);
+  const initialSound = soundFX.getSettings();
   const [balance, setBalance] = useState(1000);
   const [betAmount, setBet]   = useState(0);
   const [game, setGame]       = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const [stats, setStats]     = useState(null);
+  const [soundMuted, setSoundMuted] = useState(initialSound.muted);
+  const [soundVolume, setSoundVolume] = useState(initialSound.volume);
 
   useEffect(() => { fetchStats(); }, []);
+
+  const armSound = () => {
+    soundFX.unlock().catch(() => {});
+  };
 
   async function fetchStats() {
     try {
@@ -117,29 +217,80 @@ export default function GamePage() {
 
   const canDouble   = isPlaying && !isSplit && !!game?.can_double_down;
   const canSplit    = isPlaying && !isSplit && !!game?.can_split;
+  const tableBetAmount = Number(game?.bet_amount ?? betAmount ?? 0);
 
   /* ── Bet helpers ──────────────────────────────────────────────────────── */
-  const addChip = (v) => { if (canBet) setBet(b => b + v); };
-  const clearBet = () => setBet(0);
+  const addChip = (v) => {
+    if (canBet) {
+      armSound();
+      soundFX.playChip();
+      setBet(b => b + v);
+    }
+  };
+  const clearBet = () => {
+    armSound();
+    soundFX.playButton();
+    setBet(0);
+  };
+
+  const toggleSound = () => {
+    armSound();
+    const next = !soundMuted;
+    setSoundMuted(next);
+    soundFX.setMuted(next);
+    if (!next) {
+      soundFX.playButton();
+    }
+  };
+
+  const handleSoundVolume = (e) => {
+    const next = Number(e.target.value);
+    setSoundVolume(next);
+    soundFX.setVolume(next);
+  };
+
+  const previewSoundVolume = () => {
+    if (!soundMuted) {
+      soundFX.playChip();
+    }
+  };
+
+  const handleLogout = () => {
+    armSound();
+    soundFX.playButton();
+    logout();
+  };
 
   /* ── Deal ─────────────────────────────────────────────────────────────── */
   async function handleDeal() {
-    if (betAmount <= 0) { setError('Place a bet first'); return; }
+    armSound();
+    if (betAmount <= 0) {
+      setError('Place a bet first');
+      soundFX.playError();
+      return;
+    }
     setError(''); setLoading(true);
     try {
       const r = await gameApi.startGame(betAmount);
       const g = r.data ?? r;
+      soundFX.playDealSequence(4, 0.082);
+      if (g.status === 'finished') {
+        window.setTimeout(() => playOutcomeSound(g), 420);
+      }
       setGame(g);
       setBalance(b => b - betAmount);
       await fetchStats();
     } catch (e) {
+      soundFX.playError();
       setError(e.response?.data?.detail ?? 'Failed to start game');
     } finally { setLoading(false); }
   }
 
   /* ── In-game actions ──────────────────────────────────────────────────── */
   async function handleAction(action) {
+    armSound();
     setError(''); setLoading(true);
+    const previousGame = game;
     const gid = game.game_id;
     try {
       let r;
@@ -148,17 +299,50 @@ export default function GamePage() {
       else if (action === 'double') r = await gameApi.doubleDown(gid);
       else if (action === 'split')  r = await gameApi.split(gid);
       const g = r.data ?? r;
+
+      if (action === 'hit') soundFX.playHit();
+      if (action === 'stand') soundFX.playStand();
+      if (action === 'double') soundFX.playDouble();
+      if (action === 'split') soundFX.playSplit();
+
+      const dealerDelta = Math.max(
+        0,
+        getVisibleDealerCardCount(g) - getVisibleDealerCardCount(previousGame),
+      );
+      const playerDelta = Math.max(
+        0,
+        getVisiblePlayerCardCount(g) - getVisiblePlayerCardCount(previousGame),
+      );
+
+      if (dealerDelta > 0) {
+        soundFX.playDealSequence(dealerDelta, 0.09, 0.08);
+      } else if (action === 'hit' && playerDelta > 1) {
+        soundFX.playDealSequence(playerDelta - 1, 0.08, 0.06);
+      }
+
+      if (g.status === 'finished') {
+        const resultDelay = dealerDelta > 0 ? 150 + dealerDelta * 90 : 140;
+        window.setTimeout(() => playOutcomeSound(g), resultDelay);
+      }
+
       setGame(g);
       if (g.status === 'finished') {
         if (g.new_balance != null) setBalance(g.new_balance);
         await fetchStats();
       }
     } catch (e) {
+      soundFX.playError();
       setError(e.response?.data?.detail ?? 'Action failed');
     } finally { setLoading(false); }
   }
 
-  function handleNewGame() { setGame(null); setBet(0); setError(''); }
+  function handleNewGame() {
+    armSound();
+    soundFX.playShuffle();
+    setGame(null);
+    setBet(0);
+    setError('');
+  }
 
   /* ── Render ───────────────────────────────────────────────────────────── */
   return (
@@ -191,7 +375,31 @@ export default function GamePage() {
               </div>
             </>}
           </div>
-          <button className="btn-logout" onClick={logout}>Logout</button>
+          <div className="top-bar-actions">
+            <div className="sound-controls">
+              <button
+                className={`btn-sound${soundMuted ? ' is-muted' : ''}`}
+                onClick={toggleSound}
+                title={soundMuted ? 'Unmute sound effects' : 'Mute sound effects'}
+              >
+                {soundMuted ? 'Sound Off' : 'Sound On'}
+              </button>
+              <input
+                className="sound-slider"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={soundVolume}
+                onChange={handleSoundVolume}
+                onMouseUp={previewSoundVolume}
+                onTouchEnd={previewSoundVolume}
+                aria-label="Sound effect volume"
+                disabled={soundMuted}
+              />
+            </div>
+            <button className="btn-logout" onClick={handleLogout}>Logout</button>
+          </div>
         </header>
 
         {/* Props */}
@@ -264,6 +472,7 @@ export default function GamePage() {
 
           <div className="betting-box is-center">
             <div className="bet-ring" />
+            <TableChipStack amount={tableBetAmount} />
 
             {/* Player hand inside center spot */}
             <div className="player-zone">
