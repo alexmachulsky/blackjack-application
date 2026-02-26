@@ -477,29 +477,33 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 
 .table-chip-stack {
   position: absolute;
-  top: 26px;
+  top: 6px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: flex-end;
-  gap: 7px;
+  gap: 4px;
   pointer-events: none;
-  z-index: 6;
+  z-index: 12;
 }
 
 .chip-stack-pile {
   position: relative;
-  width: 34px;
-  height: 46px;
+  width: 26px;
+  height: 50px;
+}
+
+.chip-stack-pile.is-empty {
+  opacity: 0;
 }
 
 .table-chip {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--chip-level, 0) * 4px);
+  bottom: calc(var(--chip-level, 0) * 3px);
   transform: translateX(-50%) rotate(var(--chip-tilt, 0deg));
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   border: 2px dashed rgba(255,255,255,0.28);
   outline: 2px solid rgba(0,0,0,0.45);
@@ -512,7 +516,7 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 .table-chip::after {
   content: '';
   position: absolute;
-  inset: 3px;
+  inset: 2px;
   border-radius: 50%;
   border: 1px solid rgba(255,255,255,0.16);
 }
@@ -533,8 +537,8 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 }
 
 .table-chip-total {
-  margin-left: 6px;
-  margin-bottom: 2px;
+  margin-left: 4px;
+  margin-bottom: 8px;
   padding: 2px 8px;
   border-radius: 11px;
   background: rgba(0,0,0,0.62);
@@ -687,12 +691,41 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 
 /* Face-down card back */
 .playing-card.face-down {
-  background:
-    radial-gradient(ellipse at 50% 15%, #2a5cb8 0%, #1b3a8a 40%, #0d1f50 100%);
-  border: 2px solid #0d2040;
-  outline: 1.5px solid rgba(100,150,255,0.2);
+  background-color: #121212;
   background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M10 0L20 10L10 20L0 10Z' fill='none' stroke='rgba(255,255,255,0.06)' stroke-width='0.8'/%3E%3C/svg%3E");
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M12 2L22 12L12 22L2 12Z' fill='none' stroke='rgba(212,175,55,0.22)' stroke-width='0.9'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse at 28% 18%, #2c2c2c 0%, #171717 52%, #0b0b0b 100%);
+  background-size: 24px 24px, auto;
+  background-repeat: repeat, no-repeat;
+  border: 2px solid #262011;
+  outline: 1.5px solid rgba(212,175,55,0.38);
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.08),
+    inset 0 0 24px rgba(212,175,55,0.08),
+    0 14px 30px rgba(0,0,0,0.74),
+    0 0 0 1px rgba(20,16,8,0.82);
+}
+
+.playing-card.face-down::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border: 1.5px solid rgba(212,175,55,0.56);
+  border-radius: 6px;
+  box-shadow:
+    inset 0 0 0 1px rgba(0,0,0,0.32),
+    inset 0 0 14px rgba(0,0,0,0.45);
+}
+
+.playing-card.face-down::after {
+  content: '♠';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(247, 224, 122, 0.9);
+  font-size: clamp(16px, 2.2vw, 22px);
+  text-shadow: 0 1px 4px rgba(0,0,0,0.7), 0 0 10px rgba(212,175,55,0.45);
 }
 
 /* Ghost card placeholder */
@@ -877,7 +910,7 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   font-weight: 700;
   color: white;
   cursor: pointer;
-  transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.14s;
+  transition: box-shadow 0.14s, filter 0.14s;
   user-select: none;
   text-shadow: 0 1px 4px rgba(0,0,0,0.8);
   box-shadow:
@@ -898,12 +931,11 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 }
 
 .chip:hover:not(:disabled) {
-  transform: translateY(-5px) scale(1.12) rotate(-3deg);
-  box-shadow: 0 12px 28px rgba(0,0,0,0.7), inset 0 -3px 5px rgba(0,0,0,0.35);
+  filter: brightness(1.04);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.66), inset 0 -3px 5px rgba(0,0,0,0.35);
 }
 .chip:active:not(:disabled) {
-  transform: scale(0.94);
-  animation: chipDrop 0.2s ease-out;
+  filter: brightness(0.98);
 }
 .chip:disabled { opacity: 0.2; cursor: not-allowed; }
 
@@ -917,6 +949,8 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 /* ─── Clear bet button ───────────────────────────────────────────────────── */
 
 .btn-clear {
+  flex: 0 0 62px;
+  min-width: 62px;
   padding: 6px 13px;
   background: transparent;
   border: 1px solid rgba(255,255,255,0.12);
@@ -926,12 +960,18 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   font-size: 10px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  transition: all 0.2s;
+  text-align: center;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s, opacity 0.2s;
 }
 .btn-clear:hover {
   background: rgba(255,255,255,0.06);
   color: rgba(255,255,255,0.8);
   border-color: rgba(255,255,255,0.3);
+}
+.btn-clear.is-hidden {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ─── Balance (right of strip) ───────────────────────────────────────────── */
@@ -1254,8 +1294,8 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   .sound-controls { padding: 3px 6px; }
   .top-bar-actions { gap: 6px; }
   .table-chip-stack { top: 20px; gap: 5px; }
-  .chip-stack-pile { width: 28px; height: 40px; }
-  .table-chip { width: 28px; height: 28px; }
+  .chip-stack-pile { width: 22px; height: 38px; }
+  .table-chip { width: 22px; height: 22px; }
   .table-chip-total { font-size: 0.55rem; padding: 2px 6px; }
   .bet-display-box { min-width: 80px; }
   .bottom-strip { gap: 8px; padding: 0 10px; }

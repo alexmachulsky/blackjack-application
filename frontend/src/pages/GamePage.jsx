@@ -113,21 +113,29 @@ function breakdownBetIntoChips(amount = 0) {
 
 function TableChipStack({ amount }) {
   if (!amount || amount <= 0) return null;
-  const stacks = breakdownBetIntoChips(amount);
+  const dynamicStacks = breakdownBetIntoChips(amount);
+  const countByCents = new Map(dynamicStacks.map((stack) => [stack.cents, stack.count]));
+  const stacks = TABLE_CHIP_DENOMS.map((chip) => ({
+    ...chip,
+    count: countByCents.get(chip.cents) ?? 0,
+  }));
 
   return (
     <div className="table-chip-stack" aria-label={`Current bet ${amount.toFixed(2)}`}>
       {stacks.map((stack, stackIndex) => {
         const visible = Math.min(stack.count, 8);
         return (
-          <div className="chip-stack-pile" key={stack.cents}>
+          <div
+            className={`chip-stack-pile${stack.count === 0 ? ' is-empty' : ''}`}
+            key={stack.cents}
+          >
             {Array.from({ length: visible }).map((_, i) => (
               <div
                 key={`${stack.cents}-${i}`}
                 className={`table-chip ${stack.cls}`}
                 style={{
                   '--chip-level': i,
-                  '--chip-tilt': `${((stackIndex + i) % 2 === 0 ? 1 : -1) * 0.8}deg`,
+                  '--chip-tilt': '0deg',
                 }}
               />
             ))}
@@ -218,6 +226,10 @@ export default function GamePage() {
   const canDouble   = isPlaying && !isSplit && !!game?.can_double_down;
   const canSplit    = isPlaying && !isSplit && !!game?.can_split;
   const tableBetAmount = Number(game?.bet_amount ?? betAmount ?? 0);
+  const dealerCardsForDisplay = isPlaying && dealerCards.length === 1
+    ? [...dealerCards, { rank: '', suit: '' }]
+    : dealerCards;
+  const hideDealerLastCard = isPlaying && dealerCardsForDisplay.length > 1;
 
   /* ── Bet helpers ──────────────────────────────────────────────────────── */
   const addChip = (v) => {
@@ -428,7 +440,7 @@ export default function GamePage() {
         <div className="dealer-zone">
           <span className="zone-label">Dealer</span>
           {dealerCards.length > 0
-            ? <HandRow cards={dealerCards} faceDownLast={isPlaying} />
+            ? <HandRow cards={dealerCardsForDisplay} faceDownLast={hideDealerLastCard} />
             : <GhostHand />
           }
           {isFinished && dealerValue > 0 && (
@@ -544,11 +556,13 @@ export default function GamePage() {
                 {label}
               </button>
             ))}
-            {betAmount > 0 && (
-              <button className="btn-clear" onClick={clearBet} disabled={loading}>
-                Clear
-              </button>
-            )}
+            <button
+              className={`btn-clear${betAmount > 0 ? '' : ' is-hidden'}`}
+              onClick={clearBet}
+              disabled={loading || betAmount <= 0}
+            >
+              Clear
+            </button>
           </div>
         )}
 
