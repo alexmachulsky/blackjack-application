@@ -99,13 +99,14 @@ kubectl -n "$NAMESPACE" rollout status statefulset/postgres --timeout=180s
 
 # ── 5. Backend ───────────────────────────────────────────────────────────────
 echo "⚙️  [5/6] Deploying backend..."
-sed -e "s|ECR_REPO|${ECR_REPO}|g" -e "s|IMAGE_TAG|${IMAGE_TAG}|g" \
+ECR_DEFAULT="904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application"
+sed "s|image: ${ECR_DEFAULT}:backend-.*|image: ${ECR_REPO}:backend-${IMAGE_TAG}|g" \
   "$SCRIPT_DIR/backend.yaml" | kubectl apply -f -
 kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=120s
 
 # ── 6. Frontend + NLB ────────────────────────────────────────────────────────
 echo "🌐 [6/6] Deploying frontend (+ NLB provisioning)..."
-sed -e "s|ECR_REPO|${ECR_REPO}|g" -e "s|IMAGE_TAG|${IMAGE_TAG}|g" \
+sed "s|image: ${ECR_DEFAULT}:frontend-.*|image: ${ECR_REPO}:frontend-${IMAGE_TAG}|g" \
   "$SCRIPT_DIR/frontend.yaml" | kubectl apply -f -
 kubectl -n "$NAMESPACE" rollout status deployment/frontend --timeout=120s
 
