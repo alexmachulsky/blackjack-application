@@ -45,7 +45,7 @@ spec:
               done
               echo "PostgreSQL is ready!"
         - name: migrate
-          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-latest
+          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.22
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -65,7 +65,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: backend
-          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-latest
+          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.22
           ports:
             - containerPort: 8000
               name: http
