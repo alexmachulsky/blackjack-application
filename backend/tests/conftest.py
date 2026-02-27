@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.core.database import Base, get_db
+from app.core.limiter import limiter
 
 # In-memory SQLite — StaticPool ensures one shared DB across all connections
 SQLALCHEMY_DATABASE_URL = "sqlite://"
@@ -23,6 +24,14 @@ def override_get_db():
         yield database
     finally:
         database.close()
+
+
+@pytest.fixture(autouse=True)
+def _disable_rate_limiter():
+    """Disable the rate limiter for all tests so rapid requests don't return 429."""
+    limiter.enabled = False
+    yield
+    limiter.enabled = True
 
 
 @pytest.fixture(scope="function")

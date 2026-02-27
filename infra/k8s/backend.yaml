@@ -45,7 +45,7 @@ spec:
               done
               echo "PostgreSQL is ready!"
         - name: migrate
-          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.20
+          image: ECR_REPO:backend-IMAGE_TAG
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -58,9 +58,14 @@ spec:
                 secretKeyRef:
                   name: blackjack-secrets
                   key: DATABASE_URL
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: backend
-          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.20
+          image: ECR_REPO:backend-IMAGE_TAG
           ports:
             - containerPort: 8000
               name: http
@@ -86,6 +91,13 @@ spec:
               value: WARNING
             - name: ACCESS_TOKEN_EXPIRE_MINUTES
               value: "60"
+            - name: CORS_ORIGINS
+              value: ""  # Not needed — frontend proxies API calls via nginx
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 100m
@@ -105,6 +117,11 @@ spec:
               port: 8000
             initialDelaySeconds: 15
             periodSeconds: 30
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 10Mi
 
 ---
 # ClusterIP Service — only reachable from within the cluster

@@ -15,6 +15,32 @@ export const setAuthToken = (token) => {
   }
 };
 
+// ── 401 Interceptor — auto-logout on expired/invalid tokens ─────────────────
+let _onUnauthorized = null;
+
+/**
+ * Register a callback to be called when any API response returns 401.
+ * AuthContext sets this to its logout() function on mount.
+ */
+export const onUnauthorized = (callback) => {
+  _onUnauthorized = callback;
+};
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (
+      error.response?.status === 401 &&
+      !error.config?.url?.includes('/auth/login') &&
+      !error.config?.url?.includes('/auth/register')
+    ) {
+      // Token expired or revoked mid-session — trigger logout
+      if (_onUnauthorized) _onUnauthorized();
+    }
+    return Promise.reject(error);
+  },
+);
+
 // Auth endpoints
 export const register = (email, password) => {
   return api.post('/auth/register', { email, password });

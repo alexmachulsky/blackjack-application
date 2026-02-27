@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import * as authApi from '../services/api';
-import { setAuthToken } from '../services/api';
+import { setAuthToken, onUnauthorized } from '../services/api';
 
 const AuthContext = createContext();
 
@@ -12,6 +12,19 @@ export function AuthProvider({ children }) {
   const [token, setToken]  = useState(() => localStorage.getItem('token'));
   const [user,  setUser]   = useState(null);
 
+  const logout = useCallback(() => {
+    setAuthToken(null);
+    localStorage.removeItem('token');
+    setToken(null);
+    setUser(null);
+  }, []);
+
+  /* Register the 401 interceptor so expired tokens trigger auto-logout */
+  useEffect(() => {
+    onUnauthorized(logout);
+    return () => onUnauthorized(null);
+  }, [logout]);
+
   /* Re-hydrate user on mount / token change */
   useEffect(() => {
     if (!token) { setUser(null); return; }
@@ -20,12 +33,9 @@ export function AuthProvider({ children }) {
       .then(r => setUser(r.data))
       .catch(() => {
         // Token expired or invalid — clean up
-        localStorage.removeItem('token');
-        setToken(null);
-        setUser(null);
-        setAuthToken(null);
+        logout();
       });
-  }, [token]);
+  }, [token, logout]);
 
   /* login(username, password) → calls API, stores token */
   async function login(username, password) {
@@ -40,13 +50,6 @@ export function AuthProvider({ children }) {
   /* register(username, password) → calls API register */
   async function register(username, password) {
     await authApi.register(username, password);
-  }
-
-  function logout() {
-    setAuthToken(null);
-    localStorage.removeItem('token');
-    setToken(null);
-    setUser(null);
   }
 
   return (

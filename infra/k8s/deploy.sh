@@ -66,6 +66,12 @@ POSTGRES_PASSWORD="${DB_PASSWORD}"
 POSTGRES_DB="${POSTGRES_DB:-blackjack}"
 DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
 
+# ── Image tag resolution ─────────────────────────────────────────────────────
+ECR_REPO="${ECR_REPO:-904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application}"
+IMAGE_TAG="${IMAGE_TAG:-latest}"
+echo "🏷️  ECR repo:  $ECR_REPO"
+echo "🏷️  Image tag: $IMAGE_TAG"
+
 # ── 1. Namespace ─────────────────────────────────────────────────────────────
 echo ""
 echo "📦 [1/6] Creating namespace..."
@@ -93,12 +99,14 @@ kubectl -n "$NAMESPACE" rollout status statefulset/postgres --timeout=180s
 
 # ── 5. Backend ───────────────────────────────────────────────────────────────
 echo "⚙️  [5/6] Deploying backend..."
-kubectl apply -f "$SCRIPT_DIR/backend.yaml"
+sed -e "s|ECR_REPO|${ECR_REPO}|g" -e "s|IMAGE_TAG|${IMAGE_TAG}|g" \
+  "$SCRIPT_DIR/backend.yaml" | kubectl apply -f -
 kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=120s
 
 # ── 6. Frontend + NLB ────────────────────────────────────────────────────────
 echo "🌐 [6/6] Deploying frontend (+ NLB provisioning)..."
-kubectl apply -f "$SCRIPT_DIR/frontend.yaml"
+sed -e "s|ECR_REPO|${ECR_REPO}|g" -e "s|IMAGE_TAG|${IMAGE_TAG}|g" \
+  "$SCRIPT_DIR/frontend.yaml" | kubectl apply -f -
 kubectl -n "$NAMESPACE" rollout status deployment/frontend --timeout=120s
 
 # ── Wait for LoadBalancer URL ────────────────────────────────────────────────

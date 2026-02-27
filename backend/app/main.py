@@ -5,10 +5,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.core.database import engine, Base
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.routes import auth, game, stats
 
 # Configure structured JSON logging
@@ -70,6 +73,10 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Rate limiting — per-IP throttle on auth endpoints
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS middleware — origins driven by CORS_ORIGINS env var
 app.add_middleware(

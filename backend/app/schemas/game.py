@@ -34,7 +34,7 @@ class HandState(BaseModel):
 
 
 class GameState(BaseModel):
-    game_id: uuid.UUID
+    game_id: str
     status: str
     bet_amount: float
     # Backward-compat: always the current/first player hand
