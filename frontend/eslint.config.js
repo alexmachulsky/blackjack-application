@@ -29,7 +29,7 @@ export default [
       "react/react-in-jsx-scope": "off", // not needed with React 17+ JSX transform
       "react/jsx-uses-react": "error",   // mark React as used when JSX is present
       "react/jsx-uses-vars": "error",    // mark vars used in JSX as used
-      "react/prop-types": "warn",
+      "react/prop-types": "off",  // not needed — React 19, no runtime prop-types
 
       // Hooks
       "react-hooks/rules-of-hooks": "error",
@@ -37,7 +37,7 @@ export default [
 
       // General quality
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
-      "no-console": "warn",
+      "no-console": ["warn", { allow: ["warn", "error"] }],
     },
   },
 ];
