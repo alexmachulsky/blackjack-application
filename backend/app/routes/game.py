@@ -1,17 +1,12 @@
 import logging
-import uuid
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from typing import Dict, List
 
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.game import Game, GameCard
-from app.schemas.game import GameStart, GameState, GameAction, CardSchema, HandState
-from app.services.game_engine import GameEngine
-from app.services.deck import Rank, Suit
+from app.schemas.game import GameStart, GameState, GameAction
 from app.services import game_service
 
 router = APIRouter()

@@ -121,9 +121,18 @@ app.include_router(game.router, prefix="/api/v1/game", tags=["Game"])
 app.include_router(stats.router, prefix="/api/v1/stats", tags=["Statistics"])
 
 # Backward-compat: keep old un-prefixed routes so existing clients don't break
-app.include_router(auth.router, prefix="/auth", tags=["Authentication (compat)"], include_in_schema=False)
-app.include_router(game.router, prefix="/game", tags=["Game (compat)"], include_in_schema=False)
-app.include_router(stats.router, prefix="/stats", tags=["Statistics (compat)"], include_in_schema=False)
+app.include_router(
+    auth.router,
+    prefix="/auth",
+    tags=["Authentication (compat)"],
+    include_in_schema=False,
+)
+app.include_router(
+    game.router, prefix="/game", tags=["Game (compat)"], include_in_schema=False
+)
+app.include_router(
+    stats.router, prefix="/stats", tags=["Statistics (compat)"], include_in_schema=False
+)
 
 
 @app.get("/health")
