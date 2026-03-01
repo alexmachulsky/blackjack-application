@@ -2,55 +2,8 @@ import { useState, useEffect, useContext } from 'react';
 import AuthContext from '../context/AuthContext';
 import { gameApi, statsApi } from '../services/api';
 import { soundFX } from '../services/soundEffects';
-
-/* ─── Suit map ───────────────────────────────────────────────────────────── */
-const SUIT  = { Hearts: '♥', Diamonds: '♦', Clubs: '♣', Spades: '♠' };
-const RED   = new Set(['Hearts', 'Diamonds']);
-const FACES = new Set(['K', 'Q', 'J']);
-
-function PlayingCard({ card, faceDown = false }) {
-  if (faceDown) return <div className="playing-card face-down" />;
-  const color    = RED.has(card.suit) ? 'red' : 'black';
-  const isFace   = FACES.has(card.rank);
-  const s        = SUIT[card.suit] ?? card.suit;
-  return (
-    <div className={`playing-card ${color}${isFace ? ' face-card' : ''}`}>
-      <div className="card-corner">
-        <span className="cr">{card.rank}</span>
-        <span className="cs">{s}</span>
-      </div>
-      <div className="card-center">{s}</div>
-      <div className="card-corner bottom">
-        <span className="cr">{card.rank}</span>
-        <span className="cs">{s}</span>
-      </div>
-    </div>
-  );
-}
-
-function HandRow({ cards = [], faceDownLast = false }) {
-  return (
-    <div className="hand-row">
-      {cards.map((c, i) => (
-        <PlayingCard
-          key={i}
-          card={c}
-          faceDown={faceDownLast && i === cards.length - 1}
-        />
-      ))}
-    </div>
-  );
-}
-
-function GhostHand({ count = 2 }) {
-  return (
-    <div className="hand-row" style={{ opacity: 0.12 }}>
-      {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="card-ghost" />
-      ))}
-    </div>
-  );
-}
+import HandRow, { GhostHand } from '../components/HandRow';
+import TableChipStack, { CHIPS } from '../components/TableChipStack';
 
 /* ─── Result helpers ─────────────────────────────────────────────────────── */
 function resultClass(r) {
@@ -71,84 +24,7 @@ function resultLabel(r) {
 }
 
 /* ─── Chips ──────────────────────────────────────────────────────────────── */
-const CHIPS = [
-  { val: 0.5, label: '.50',  cls: 'chip-0-5'  },
-  { val: 1,   label: '$1',   cls: 'chip-1'    },
-  { val: 5,   label: '$5',   cls: 'chip-5'    },
-  { val: 25,  label: '$25',  cls: 'chip-25'   },
-  { val: 100, label: '$100', cls: 'chip-100'  },
-  { val: 500, label: '$500', cls: 'chip-500'  },
-];
-
-const TABLE_CHIP_DENOMS = [...CHIPS]
-  .map((chip) => ({
-    ...chip,
-    cents: Math.round(chip.val * 100),
-  }))
-  .sort((a, b) => b.cents - a.cents);
-
-function breakdownBetIntoChips(amount = 0) {
-  let remaining = Math.max(0, Math.round(amount * 100));
-  const stacks = [];
-
-  TABLE_CHIP_DENOMS.forEach((chip) => {
-    if (remaining <= 0) return;
-    const count = Math.floor(remaining / chip.cents);
-    if (count > 0) {
-      stacks.push({ ...chip, count });
-      remaining -= count * chip.cents;
-    }
-  });
-
-  if (remaining > 0) {
-    const smallest = TABLE_CHIP_DENOMS[TABLE_CHIP_DENOMS.length - 1];
-    const fallback = Math.ceil(remaining / smallest.cents);
-    const existing = stacks.find((stack) => stack.cents === smallest.cents);
-    if (existing) existing.count += fallback;
-    else stacks.push({ ...smallest, count: fallback });
-  }
-
-  return stacks;
-}
-
-function TableChipStack({ amount }) {
-  if (!amount || amount <= 0) return null;
-  const dynamicStacks = breakdownBetIntoChips(amount);
-  const countByCents = new Map(dynamicStacks.map((stack) => [stack.cents, stack.count]));
-  const stacks = TABLE_CHIP_DENOMS.map((chip) => ({
-    ...chip,
-    count: countByCents.get(chip.cents) ?? 0,
-  }));
-
-  return (
-    <div className="table-chip-stack" aria-label={`Current bet ${amount.toFixed(2)}`}>
-      {stacks.map((stack, stackIndex) => {
-        const visible = Math.min(stack.count, 8);
-        return (
-          <div
-            className={`chip-stack-pile${stack.count === 0 ? ' is-empty' : ''}`}
-            key={stack.cents}
-          >
-            {Array.from({ length: visible }).map((_, i) => (
-              <div
-                key={`${stack.cents}-${i}`}
-                className={`table-chip ${stack.cls}`}
-                style={{
-                  '--chip-level': i,
-                  '--chip-tilt': '0deg',
-                }}
-              />
-            ))}
-            {stack.count > visible && (
-              <span className="chip-stack-count">x{stack.count}</span>
-            )}
-          </div>
-        );
-      })}
-      <span className="table-chip-total">${amount.toFixed(2)}</span>
-    </div>
-  );
-}
+// CHIPS and TableChipStack are imported from components/TableChipStack
 
 const getVisiblePlayerCardCount = (state) => {
   if (!state) return 0;
@@ -184,7 +60,7 @@ function playOutcomeSound(state) {
 export default function GamePage() {
   const { logout }            = useContext(AuthContext);
   const initialSound = soundFX.getSettings();
-  const [balance, setBalance] = useState(1000);
+  const [balance, setBalance] = useState(null);
   const [betAmount, setBet]   = useState(0);
   const [game, setGame]       = useState(null);
   const [loading, setLoading] = useState(false);
@@ -205,7 +81,9 @@ export default function GamePage() {
       const s = r.data ?? r;
       setStats(s);
       if (s.current_balance != null) setBalance(s.current_balance);
-    } catch {}
+    } catch (e) {
+      console.error('Failed to fetch stats:', e);
+    }
   }
 
   /* ── API field extraction ─────────────────────────────────────────────── */
@@ -632,7 +510,7 @@ export default function GamePage() {
         {/* Balance */}
         <div className="balance-box">
           <span className="balance-label">Balance</span>
-          <span className="balance-value">${balance.toFixed(2)}</span>
+          <span className="balance-value">${balance != null ? balance.toFixed(2) : '—'}</span>
         </div>
 
       </div>{/* /bottom-strip */}

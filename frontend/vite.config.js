@@ -10,10 +10,13 @@ export default defineConfig({
       // Forward all API calls through the Vite dev server to the backend
       // container using its Docker internal hostname.
       // This means the browser always talks to localhost:3000 — no port issues.
+      '/api/v1': { target: 'http://backend:8000', changeOrigin: true },
+      // Backward-compat: keep old un-prefixed routes proxied too
       '/auth': { target: 'http://backend:8000', changeOrigin: true },
       '/game': { target: 'http://backend:8000', changeOrigin: true },
       '/stats': { target: 'http://backend:8000', changeOrigin: true },
       '/health': { target: 'http://backend:8000', changeOrigin: true },
+      '/metrics': { target: 'http://backend:8000', changeOrigin: true },
     },
   },
 })

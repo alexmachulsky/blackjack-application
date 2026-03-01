@@ -26,10 +26,15 @@ class Settings(BaseSettings):
 
     # --- Game ---
     INITIAL_BALANCE: float = 1000.0
+    MIN_BET: float = 5.0
+    MAX_BET: float = 2000.0
 
     # --- Observability ---
     LOG_LEVEL: str = "INFO"
     ENVIRONMENT: str = "development"  # development | staging | production
+
+    # --- Version (injected by CI at build time) ---
+    APP_VERSION: str = "0.0.0-dev"
 
     # --- CORS (comma-separated string parsed into a list) ---
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"

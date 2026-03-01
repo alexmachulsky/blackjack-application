@@ -13,7 +13,7 @@ Strategy
 import pytest
 from fastapi.testclient import TestClient
 
-from app.routes.game import active_games
+from app.services.game_service import active_games
 from app.services.game_engine import GameEngine
 from app.services.deck import Card, Rank, Suit
 
@@ -94,22 +94,31 @@ def test_start_game_deducts_balance(client):
     assert data["new_balance"] == pytest.approx(1000.0 - _BET)
 
 
-def test_start_game_invalid_bet_returns_400(client):
+def test_start_game_invalid_bet_returns_422(client):
     headers = _make_headers(client)
     resp = client.post("/game/start", headers=headers, json={"bet_amount": 0})
-    assert resp.status_code == 400
-    assert "positive" in resp.json()["detail"].lower()
+    assert resp.status_code == 422  # Pydantic gt=0 constraint
 
 
-def test_start_game_negative_bet_returns_400(client):
+def test_start_game_negative_bet_returns_422(client):
     headers = _make_headers(client)
     resp = client.post("/game/start", headers=headers, json={"bet_amount": -10})
+    assert resp.status_code == 422  # Pydantic gt=0 constraint
+
+
+def test_start_game_exceeds_max_bet_returns_400(client):
+    headers = _make_headers(client)
+    resp = client.post("/game/start", headers=headers, json={"bet_amount": 99999.0})
     assert resp.status_code == 400
+    assert "maximum" in resp.json()["detail"].lower()
 
 
 def test_start_game_insufficient_balance_returns_400(client):
+    """Bet within max-bet range but more than the player's balance."""
     headers = _make_headers(client)
-    resp = client.post("/game/start", headers=headers, json={"bet_amount": 99999.0})
+    resp = client.post("/game/start", headers=headers, json={"bet_amount": 1500.0})
+    # Default balance is 1000, but 1500 is within MAX_BET (2000)
+    # so it should be rejected with "Insufficient balance"
     assert resp.status_code == 400
     assert "insufficient" in resp.json()["detail"].lower()
 

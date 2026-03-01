@@ -1,0 +1,33 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Pod Disruption Budgets — prevent accidental total downtime during drains
+#
+# Ensures at least 1 pod stays available during voluntary disruptions
+# (node upgrades, kubectl drain, cluster autoscaler scale-in).
+# ──────────────────────────────────────────────────────────────────────────────
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+  namespace: blackjack
+  labels:
+    app: backend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: blackjack
+  labels:
+    app: frontend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend

@@ -1,7 +1,11 @@
 # ============================================================
 # Developer convenience Makefile
 # All targets assume Docker + Docker Compose are available.
+# Supports both 'docker compose' (V2 plugin) and 'docker-compose' (V1 standalone).
 # ============================================================
+
+# Auto-detect compose command
+COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
 
 .PHONY: help dev stop build test lint format migrate shell clean
 
@@ -22,52 +26,52 @@ help:
 # ── Local development ──────────────────────────────────────────
 
 dev:
-	docker compose up --build
+	$(COMPOSE) up --build
 
 stop:
-	docker compose down
+	$(COMPOSE) down
 
 build:
-	docker compose build
+	$(COMPOSE) build
 
 # ── Testing ────────────────────────────────────────────────────
 
 test:
-	docker compose run --rm backend \
+	$(COMPOSE) run --rm -u root backend \
 		sh -c "pip install -r requirements-dev.txt -q && pytest tests/ -v"
 
 test-coverage:
-	docker compose run --rm backend \
+	$(COMPOSE) run --rm -u root backend \
 		sh -c "pip install -r requirements-dev.txt -q && \
 		       pytest tests/ --cov=app --cov-report=term-missing"
 
 # ── Linting & Formatting ───────────────────────────────────────
 
 lint:
-	docker compose run --rm backend \
+	$(COMPOSE) run --rm -u root backend \
 		sh -c "pip install ruff black -q && ruff check . && black --check ."
 
 format:
-	docker compose run --rm backend \
+	$(COMPOSE) run --rm -u root backend \
 		sh -c "pip install black -q && black ."
 
 # ── Database ───────────────────────────────────────────────────
 
 migrate:
-	docker compose run --rm backend alembic upgrade head
+	$(COMPOSE) run --rm backend alembic upgrade head
 
 migration:
 	@read -p "Migration message: " msg; \
-	docker compose run --rm backend alembic revision --autogenerate -m "$$msg"
+	$(COMPOSE) run --rm backend alembic revision --autogenerate -m "$$msg"
 
 # ── Utilities ──────────────────────────────────────────────────
 
 shell:
-	docker compose run --rm backend python
+	$(COMPOSE) run --rm backend python
 
 logs:
-	docker compose logs -f backend
+	$(COMPOSE) logs -f backend
 
 clean:
-	docker compose down -v --remove-orphans
+	$(COMPOSE) down -v --remove-orphans
 	docker image prune -f

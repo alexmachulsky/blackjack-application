@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.core.database import engine, Base
 from app.core.config import settings
@@ -70,7 +71,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Blackjack Game Engine API",
     description="Production-grade Blackjack game with clean architecture",
-    version="1.0.0",
+    version=settings.APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -114,10 +115,15 @@ async def log_requests(request: Request, call_next):
     return response
 
 
-# Include routers
-app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
-app.include_router(game.router, prefix="/game", tags=["Game"])
-app.include_router(stats.router, prefix="/stats", tags=["Statistics"])
+# Include routers under /api/v1 prefix for forward-compatible versioning
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(game.router, prefix="/api/v1/game", tags=["Game"])
+app.include_router(stats.router, prefix="/api/v1/stats", tags=["Statistics"])
+
+# Backward-compat: keep old un-prefixed routes so existing clients don't break
+app.include_router(auth.router, prefix="/auth", tags=["Authentication (compat)"], include_in_schema=False)
+app.include_router(game.router, prefix="/game", tags=["Game (compat)"], include_in_schema=False)
+app.include_router(stats.router, prefix="/stats", tags=["Statistics (compat)"], include_in_schema=False)
 
 
 @app.get("/health")
@@ -125,7 +131,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "blackjack-api",
-        "version": "1.0.0",
+        "version": settings.APP_VERSION,
         "environment": settings.ENVIRONMENT,
     }
 
@@ -148,3 +154,7 @@ async def readiness_check():
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+# Prometheus /metrics endpoint — exposes request latency, status codes, etc.
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")

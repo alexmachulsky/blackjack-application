@@ -1,4 +1,5 @@
-from pydantic import BaseModel, ConfigDict
+from decimal import Decimal
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from datetime import datetime
 import uuid
@@ -10,7 +11,7 @@ class CardSchema(BaseModel):
 
 
 class GameStart(BaseModel):
-    bet_amount: float
+    bet_amount: Decimal = Field(..., gt=0, description="Bet amount in dollars")
 
 
 # ---------------------------------------------------------------------------

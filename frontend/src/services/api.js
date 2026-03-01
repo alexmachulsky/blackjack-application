@@ -43,47 +43,47 @@ api.interceptors.response.use(
 
 // Auth endpoints
 export const register = (email, password) => {
-  return api.post('/auth/register', { email, password });
+  return api.post('/api/v1/auth/register', { email, password });
 };
 
 export const login = (email, password) => {
-  return api.post('/auth/login', { email, password });
+  return api.post('/api/v1/auth/login', { email, password });
 };
 
 export const getCurrentUser = () => {
-  return api.get('/auth/me');
+  return api.get('/api/v1/auth/me');
 };
 
 // Game endpoints
 export const startGame = (betAmount) => {
-  return api.post('/game/start', { bet_amount: betAmount });
+  return api.post('/api/v1/game/start', { bet_amount: betAmount });
 };
 
 export const hit = (gameId) => {
-  return api.post('/game/hit', { game_id: gameId });
+  return api.post('/api/v1/game/hit', { game_id: gameId });
 };
 
 export const stand = (gameId) => {
-  return api.post('/game/stand', { game_id: gameId });
+  return api.post('/api/v1/game/stand', { game_id: gameId });
 };
 
 /** Phase 1: Double Down — doubles the bet and deals exactly one card. */
 export const doubleDown = (gameId) => {
-  return api.post('/game/double-down', { game_id: gameId });
+  return api.post('/api/v1/game/double-down', { game_id: gameId });
 };
 
 /** Phase 2: Split — splits a matching-rank pair into two independent hands. */
 export const splitHand = (gameId) => {
-  return api.post('/game/split', { game_id: gameId });
+  return api.post('/api/v1/game/split', { game_id: gameId });
 };
 
 export const getGame = (gameId) => {
-  return api.get(`/game/${gameId}`);
+  return api.get(`/api/v1/game/${gameId}`);
 };
 
 // Stats endpoints
 export const getStats = () => {
-  return api.get('/stats');
+  return api.get('/api/v1/stats');
 };
 
 /* ── Namespace exports for components ────────────────────────────────────── */
