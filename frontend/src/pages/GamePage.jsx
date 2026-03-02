@@ -5,6 +5,7 @@ import { soundFX } from '../services/soundEffects';
 import HandRow, { GhostHand } from '../components/HandRow';
 import TableChipStack, { CHIPS } from '../components/TableChipStack';
 import Confetti from '../components/Confetti';
+import StrategyHint from '../components/StrategyHint';
 
 /* ─── Result helpers ─────────────────────────────────────────────────────── */
 function resultClass(r) {
@@ -70,6 +71,15 @@ export default function GamePage({ onShowHistory }) {
   const [soundMuted, setSoundMuted] = useState(initialSound.muted);
   const [soundVolume, setSoundVolume] = useState(initialSound.volume);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [hintsOn, setHintsOn] = useState(() => {
+    try { return localStorage.getItem('bj_hints') === '1'; } catch { return false; }
+  });
+
+  const toggleHints = () => {
+    const next = !hintsOn;
+    setHintsOn(next);
+    try { localStorage.setItem('bj_hints', next ? '1' : '0'); } catch { /* noop */ }
+  };
 
   useEffect(() => { fetchStats(); }, []);
 
@@ -332,6 +342,13 @@ export default function GamePage({ onShowHistory }) {
               />
             </div>
             <button className="btn-history" onClick={onShowHistory}>History</button>
+            <button
+              className={`btn-hints${hintsOn ? ' is-active' : ''}`}
+              onClick={toggleHints}
+              title={hintsOn ? 'Disable strategy hints' : 'Enable strategy hints'}
+            >
+              {hintsOn ? 'Hints On' : 'Hints'}
+            </button>
             <button className="btn-logout" onClick={handleLogout}>Logout</button>
           </div>
         </header>
@@ -369,6 +386,24 @@ export default function GamePage({ onShowHistory }) {
             <span className="zone-score">{dealerValue}</span>
           )}
         </div>
+
+        {/* ── Strategy hint overlay ────────────────────────────────────── */}
+        {hintsOn && isPlaying && !isSplit && playerCards.length >= 2 && dealerCards.length >= 1 && (
+          <StrategyHint
+            playerCards={playerCards}
+            dealerUpcard={dealerCards[0]}
+            canDouble={canDouble}
+            canSplit={canSplit}
+          />
+        )}
+        {hintsOn && isPlaying && isSplit && splitHands[activeIdx]?.cards?.length >= 2 && dealerCards.length >= 1 && (
+          <StrategyHint
+            playerCards={splitHands[activeIdx].cards}
+            dealerUpcard={dealerCards[0]}
+            canDouble={false}
+            canSplit={false}
+          />
+        )}
 
         {/* ── Result overlay ───────────────────────────────────────────── */}
         {isFinished && !isSplit && game?.result && (

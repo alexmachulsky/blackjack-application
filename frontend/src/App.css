@@ -1623,3 +1623,118 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 .stat-pill.streak {
   animation: streakPulse 2s ease-in-out infinite;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HINTS TOGGLE BUTTON
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.btn-hints {
+  pointer-events: all;
+  padding: 5px 16px;
+  background: rgba(76, 175, 80, 0.08);
+  border: 1px solid rgba(76, 175, 80, 0.35);
+  color: rgba(126, 219, 138, 0.6);
+  border-radius: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.btn-hints:hover {
+  background: rgba(76, 175, 80, 0.16);
+  border-color: var(--felt-bright);
+  color: var(--text-green);
+  box-shadow: 0 0 12px rgba(76, 175, 80, 0.15);
+}
+.btn-hints.is-active {
+  background: rgba(76, 175, 80, 0.2);
+  border-color: var(--felt-bright);
+  color: var(--text-green);
+  box-shadow: 0 0 10px rgba(76, 175, 80, 0.25), inset 0 0 8px rgba(76, 175, 80, 0.1);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STRATEGY HINT BADGE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@keyframes hintSlideIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.92); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.strategy-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px auto 0;
+  padding: 8px 18px;
+  border-radius: 10px;
+  max-width: 360px;
+  animation: hintSlideIn 0.3s ease-out both;
+  backdrop-filter: blur(8px);
+  position: relative;
+  z-index: 8;
+}
+
+/* Action-based colour themes */
+.strategy-hint.hint-hit {
+  background: rgba(76, 175, 80, 0.15);
+  border: 1px solid rgba(76, 175, 80, 0.4);
+}
+.strategy-hint.hint-stand {
+  background: rgba(212, 175, 55, 0.15);
+  border: 1px solid rgba(212, 175, 55, 0.4);
+}
+.strategy-hint.hint-double {
+  background: rgba(156, 39, 176, 0.15);
+  border: 1px solid rgba(156, 39, 176, 0.4);
+}
+.strategy-hint.hint-split {
+  background: rgba(33, 150, 243, 0.15);
+  border: 1px solid rgba(33, 150, 243, 0.4);
+}
+
+.hint-icon {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+}
+
+.hint-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.hint-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--white);
+}
+
+.hint-hit .hint-label   { color: var(--text-green); }
+.hint-stand .hint-label { color: var(--gold-light); }
+.hint-double .hint-label { color: #ce93d8; }
+.hint-split .hint-label  { color: #64b5f6; }
+
+.hint-desc {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.62rem;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.3px;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .strategy-hint { padding: 6px 12px; max-width: 280px; }
+  .hint-icon { font-size: 1.1rem; }
+  .hint-label { font-size: 0.72rem; }
+  .btn-hints { padding: 4px 10px; font-size: 9px; }
+}
