@@ -12,6 +12,7 @@ class PlayerStats(BaseModel):
     blackjacks: int
     win_rate: float
     current_balance: float
+    current_streak: int  # positive = win streak, negative = loss streak
 
 
 # ── Game History ──────────────────────────────────────────────────────────

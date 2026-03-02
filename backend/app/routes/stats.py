@@ -88,11 +88,13 @@ def get_stats(
 ):
     """Get player statistics"""
 
-    finished_results = (
+    finished_games = (
         db.query(Game.result)
         .filter(Game.user_id == current_user.id, Game.status == "finished")
+        .order_by(Game.created_at.desc())
         .all()
     )
+    finished_results = finished_games
 
     total_games = len(finished_results)
     wins = 0
@@ -120,6 +122,23 @@ def get_stats(
     total_resolved_hands = wins + losses + pushes
     win_rate = (wins / total_resolved_hands * 100) if total_resolved_hands > 0 else 0.0
 
+    # Calculate current streak from most recent games
+    current_streak = 0
+    for (result_value,) in finished_games:
+        if not result_value:
+            break
+        r = result_value.strip().split(",")[0].strip().lower()
+        is_win = r in ("win", "blackjack")
+        is_loss = r == "lose"
+        if current_streak == 0:
+            current_streak = 1 if is_win else (-1 if is_loss else 0)
+        elif is_win and current_streak > 0:
+            current_streak += 1
+        elif is_loss and current_streak < 0:
+            current_streak -= 1
+        else:
+            break
+
     return PlayerStats(
         total_games=total_games,
         wins=wins,
@@ -128,4 +147,5 @@ def get_stats(
         blackjacks=blackjacks,
         win_rate=round(win_rate, 2),
         current_balance=float(current_user.balance),
+        current_streak=current_streak,
     )

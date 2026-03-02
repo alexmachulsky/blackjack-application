@@ -1585,3 +1585,41 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   .hc-hands { gap: 8px; }
   .mini-card { width: 26px; height: 34px; font-size: 9px; }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONFETTI CANVAS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.confetti-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STREAK PILL
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.stat-pill.streak .stat-value {
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+.stat-pill.streak-win .stat-value {
+  color: var(--gold-light);
+  text-shadow: 0 0 10px rgba(212,175,55,0.5);
+}
+.stat-pill.streak-loss .stat-value {
+  color: #ff8080;
+  text-shadow: 0 0 10px rgba(200,16,46,0.3);
+}
+
+@keyframes streakPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+.stat-pill.streak {
+  animation: streakPulse 2s ease-in-out infinite;
+}

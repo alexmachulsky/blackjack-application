@@ -1,9 +1,10 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useCallback, useContext } from 'react';
 import AuthContext from '../context/AuthContext';
 import { gameApi, statsApi } from '../services/api';
 import { soundFX } from '../services/soundEffects';
 import HandRow, { GhostHand } from '../components/HandRow';
 import TableChipStack, { CHIPS } from '../components/TableChipStack';
+import Confetti from '../components/Confetti';
 
 /* ─── Result helpers ─────────────────────────────────────────────────────── */
 function resultClass(r) {
@@ -68,6 +69,7 @@ export default function GamePage({ onShowHistory }) {
   const [stats, setStats]     = useState(null);
   const [soundMuted, setSoundMuted] = useState(initialSound.muted);
   const [soundVolume, setSoundVolume] = useState(initialSound.volume);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   useEffect(() => { fetchStats(); }, []);
 
@@ -166,6 +168,9 @@ export default function GamePage({ onShowHistory }) {
       soundFX.playDealSequence(4, 0.082);
       if (g.status === 'finished') {
         window.setTimeout(() => playOutcomeSound(g), 420);
+        if ((g.result ?? '').toLowerCase().includes('blackjack')) {
+          setShowConfetti(true);
+        }
       }
       setGame(g);
       setBalance(b => b - betAmount);
@@ -213,6 +218,10 @@ export default function GamePage({ onShowHistory }) {
       if (g.status === 'finished') {
         const resultDelay = dealerDelta > 0 ? 150 + dealerDelta * 90 : 140;
         window.setTimeout(() => playOutcomeSound(g), resultDelay);
+        const combined = Array.isArray(g.results) ? g.results.join(',') : (g.result ?? '');
+        if (combined.toLowerCase().includes('blackjack')) {
+          setShowConfetti(true);
+        }
       }
 
       setGame(g);
@@ -232,11 +241,37 @@ export default function GamePage({ onShowHistory }) {
     setGame(null);
     setBet(0);
     setError('');
+    setShowConfetti(false);
   }
+
+  /* ── Keyboard shortcuts ───────────────────────────────────────────────── */
+  const handleKeyboard = useCallback((e) => {
+    // Ignore if user is typing in an input
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    const key = e.key.toLowerCase();
+    if (key === 'h' && isPlaying && !loading) handleAction('hit');
+    else if (key === 's' && isPlaying && !loading) handleAction('stand');
+    else if (key === 'd' && canDouble && !loading) handleAction('double');
+    else if (key === 'p' && canSplit && !loading) handleAction('split');
+    else if (key === ' ' || key === 'enter') {
+      e.preventDefault();
+      if (canBet && !isFinished && betAmount > 0 && !loading) handleDeal();
+      else if (isFinished && !loading) handleNewGame();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, canDouble, canSplit, canBet, isFinished, betAmount, loading, game]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyboard);
+    return () => window.removeEventListener('keydown', handleKeyboard);
+  }, [handleKeyboard]);
 
   /* ── Render ───────────────────────────────────────────────────────────── */
   return (
     <div className="game-wrapper">
+
+      {/* Confetti celebration */}
+      {showConfetti && <Confetti onDone={() => setShowConfetti(false)} />}
 
       {/* ══ TABLE SCENE ═════════════════════════════════════════════════ */}
       <div className="table-scene">
@@ -263,6 +298,14 @@ export default function GamePage({ onShowHistory }) {
                   {stats.win_rate != null ? `${Math.round(stats.win_rate)}%` : '0%'}
                 </span>
               </div>
+              {(stats.current_streak ?? 0) !== 0 && (
+                <div className={`stat-pill streak ${stats.current_streak > 0 ? 'streak-win' : 'streak-loss'}`}>
+                  <span className="stat-label">Streak</span>
+                  <span className="stat-value">
+                    {stats.current_streak > 0 ? `${stats.current_streak}W` : `${Math.abs(stats.current_streak)}L`}
+                  </span>
+                </div>
+              )}
             </>}
           </div>
           <div className="top-bar-actions">
@@ -482,7 +525,7 @@ export default function GamePage({ onShowHistory }) {
                   className="btn-double"
                   onClick={() => handleAction('double')}
                   disabled={loading}
-                  title="Double Down"
+                  title="Double Down (D)"
                 >
                   <span className="btn-x2">X2</span>
                   <span>DOUBLE</span>
@@ -493,6 +536,7 @@ export default function GamePage({ onShowHistory }) {
                 className="btn-hit"
                 onClick={() => handleAction('hit')}
                 disabled={loading}
+                title="Hit (H)"
               >
                 HIT
               </button>
@@ -501,6 +545,7 @@ export default function GamePage({ onShowHistory }) {
                 className="btn-stand"
                 onClick={() => handleAction('stand')}
                 disabled={loading}
+                title="Stand (S)"
               >
                 STAND
               </button>
