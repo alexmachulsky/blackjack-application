@@ -1,5 +1,5 @@
 /**
- * HandRow — renders a row of PlayingCards.
+ * HandRow — renders a row of PlayingCards with staggered deal animations.
  * Optionally hides the last card face-down (dealer hole card).
  */
 import PlayingCard from './PlayingCard';
@@ -12,6 +12,7 @@ export default function HandRow({ cards = [], faceDownLast = false }) {
           key={`${c.rank}-${c.suit}-${i}`}
           card={c}
           faceDown={faceDownLast && i === cards.length - 1}
+          dealIndex={i}
         />
       ))}
     </div>

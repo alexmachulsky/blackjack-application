@@ -57,7 +57,7 @@ function playOutcomeSound(state) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════ */
-export default function GamePage() {
+export default function GamePage({ onShowHistory }) {
   const { logout }            = useContext(AuthContext);
   const initialSound = soundFX.getSettings();
   const [balance, setBalance] = useState(null);
@@ -288,6 +288,7 @@ export default function GamePage() {
                 disabled={soundMuted}
               />
             </div>
+            <button className="btn-history" onClick={onShowHistory}>History</button>
             <button className="btn-logout" onClick={handleLogout}>Logout</button>
           </div>
         </header>

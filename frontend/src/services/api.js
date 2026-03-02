@@ -86,6 +86,10 @@ export const getStats = () => {
   return api.get('/api/v1/stats');
 };
 
+export const getHistory = (page = 1, pageSize = 20) => {
+  return api.get('/api/v1/stats/history', { params: { page, page_size: pageSize } });
+};
+
 /* ── Namespace exports for components ────────────────────────────────────── */
 export const gameApi = {
   startGame,
@@ -97,6 +101,7 @@ export const gameApi = {
 
 export const statsApi = {
   getStats,
+  getHistory,
 };
 
 export default api;

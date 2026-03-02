@@ -223,3 +223,78 @@ def test_stats_counts_split_results_per_hand(client):
     assert body["pushes"] == 1
     assert body["blackjacks"] == 1
     assert body["win_rate"] == 40.0
+
+
+# ---------------------------------------------------------------------------
+# Stage 5-F: Game History endpoint
+# ---------------------------------------------------------------------------
+
+
+def test_history_returns_empty_when_no_games(client):
+    """GET /stats/history returns empty list for fresh user."""
+    headers = _register_and_login(client, "nohistory@example.com")
+    response = client.get("/stats/history", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["games"] == []
+    assert body["total"] == 0
+    assert body["page"] == 1
+
+
+def test_history_returns_finished_games_with_cards(client):
+    """GET /stats/history returns games with player & dealer cards."""
+    headers = _register_and_login(client, "historyuser@example.com")
+
+    # Play a full game to completion
+    start = client.post("/game/start", headers=headers, json={"bet_amount": 25})
+    assert start.status_code == 200
+    g = start.json()
+    game_id = g["game_id"]
+
+    # Stand until the game is finished (may already be finished if blackjack)
+    if g["status"] == "active":
+        stand = client.post("/game/stand", headers=headers, json={"game_id": game_id})
+        assert stand.status_code == 200
+
+    # Now check history
+    response = client.get("/stats/history", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] >= 1
+    game = body["games"][0]
+    assert game["bet_amount"] == 25.0
+    assert game["result"] is not None
+    assert len(game["player_cards"]) >= 2
+    assert len(game["dealer_cards"]) >= 2
+
+
+def test_history_pagination(client):
+    """GET /stats/history respects page and page_size params."""
+    headers = _register_and_login(client, "paghistory@example.com")
+    me = client.get("/auth/me", headers=headers)
+    user_id = uuid.UUID(me.json()["id"])
+
+    # Insert several finished games
+    for _ in range(5):
+        _insert_finished_game(user_id, "win")
+
+    # Page 1 with size 2
+    r1 = client.get("/stats/history?page=1&page_size=2", headers=headers)
+    assert r1.status_code == 200
+    b1 = r1.json()
+    assert len(b1["games"]) == 2
+    assert b1["total"] == 5
+    assert b1["page"] == 1
+    assert b1["page_size"] == 2
+
+    # Page 3 with size 2 → only 1 game left
+    r3 = client.get("/stats/history?page=3&page_size=2", headers=headers)
+    assert r3.status_code == 200
+    b3 = r3.json()
+    assert len(b3["games"]) == 1
+
+
+def test_history_requires_auth(client):
+    """GET /stats/history without token returns 401."""
+    response = client.get("/stats/history")
+    assert response.status_code == 401

@@ -1304,3 +1304,284 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   .chip { width: 40px; height: 40px; font-size: 9px; }
   .marking-main { letter-spacing: 2px; }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HISTORY BUTTON (top bar)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.btn-history {
+  pointer-events: all;
+  padding: 5px 16px;
+  background: rgba(212,175,55,0.08);
+  border: 1px solid rgba(212,175,55,0.4);
+  color: rgba(232,200,74,0.8);
+  border-radius: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.btn-history:hover {
+  background: rgba(212,175,55,0.18);
+  border-color: var(--gold);
+  color: var(--gold-light);
+  box-shadow: 0 0 12px rgba(212,175,55,0.2);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MINI CARD (compact card for history view)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.mini-card {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 42px;
+  background: linear-gradient(160deg, #ffffff 0%, #f0f0f0 100%);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'Inter', sans-serif;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  flex-shrink: 0;
+}
+.mini-card.red   { color: var(--card-red); }
+.mini-card.black { color: var(--card-black); }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HISTORY PAGE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.history-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 50% 0%, var(--felt) 0%, var(--felt-dark) 60%, var(--felt-darker) 100%);
+  padding: 0 0 40px;
+  color: var(--white);
+}
+
+/* Header */
+.history-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 24px;
+  background: var(--dark-strip);
+  border-bottom: 1px solid var(--strip-border);
+}
+.history-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.3rem;
+  color: var(--gold);
+  margin: 0;
+  flex: 1;
+}
+.history-count {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.5);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.btn-back {
+  padding: 6px 16px;
+  background: rgba(212,175,55,0.08);
+  border: 1px solid rgba(212,175,55,0.35);
+  color: var(--text-gold);
+  border-radius: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-back:hover {
+  background: rgba(212,175,55,0.18);
+  border-color: var(--gold);
+  box-shadow: 0 0 12px rgba(212,175,55,0.2);
+}
+
+/* States */
+.history-loading,
+.history-empty {
+  text-align: center;
+  padding: 60px 20px;
+  font-size: 1rem;
+  color: rgba(255,255,255,0.5);
+}
+.history-error {
+  text-align: center;
+  padding: 20px;
+  color: #ff8080;
+}
+
+/* Game list */
+.history-list {
+  max-width: 720px;
+  margin: 24px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+/* Single game card */
+.history-card {
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 14px 18px;
+  transition: transform 0.15s, box-shadow 0.15s;
+  animation: deal 0.35s ease-out both;
+}
+.history-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+}
+
+/* Result-based left border accent */
+.history-card.win,
+.history-card.blackjack { border-left: 3px solid var(--gold); }
+.history-card.lose       { border-left: 3px solid #c8102e; }
+.history-card.push       { border-left: 3px solid rgba(255,255,255,0.3); }
+
+/* Top row: result + bet */
+.hc-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.hc-result {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.hc-result-tag {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.hc-result-tag.win,
+.hc-result-tag.blackjack { color: var(--gold-light); }
+.hc-result-tag.lose       { color: #ff8080; }
+.hc-result-tag.push       { color: rgba(255,255,255,0.6); }
+
+.hc-bet {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-green);
+}
+
+/* Hands row */
+.hc-hands {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.hc-hand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hc-hand-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.4);
+}
+.hc-cards {
+  display: flex;
+  gap: 3px;
+}
+.hc-vs {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.25);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  align-self: flex-end;
+  margin-bottom: 6px;
+}
+
+/* Footer */
+.hc-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.hc-date {
+  font-size: 0.65rem;
+  color: rgba(255,255,255,0.3);
+}
+.hc-split-badge {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(212,175,55,0.15);
+  border: 1px solid rgba(212,175,55,0.3);
+  color: var(--gold);
+}
+
+/* Pagination */
+.history-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+}
+.history-pagination button {
+  padding: 8px 20px;
+  background: rgba(212,175,55,0.08);
+  border: 1px solid rgba(212,175,55,0.3);
+  color: var(--text-gold);
+  border-radius: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.history-pagination button:hover:not(:disabled) {
+  background: rgba(212,175,55,0.18);
+  border-color: var(--gold);
+}
+.history-pagination button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.history-page-info {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.5);
+}
+
+/* History responsive */
+@media (max-width: 600px) {
+  .history-header { padding: 10px 12px; gap: 8px; }
+  .history-title { font-size: 1rem; }
+  .history-list { padding: 0 8px; }
+  .history-card { padding: 10px 12px; }
+  .hc-hands { gap: 8px; }
+  .mini-card { width: 26px; height: 34px; font-size: 9px; }
+}
