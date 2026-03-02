@@ -341,15 +341,19 @@ export default function GamePage({ onShowHistory }) {
                 disabled={soundMuted}
               />
             </div>
-            <button className="btn-history" onClick={onShowHistory}>History</button>
+            <button className="btn-history" onClick={onShowHistory}>
+              <span className="btn-icon">📜</span> History
+            </button>
             <button
               className={`btn-hints${hintsOn ? ' is-active' : ''}`}
               onClick={toggleHints}
               title={hintsOn ? 'Disable strategy hints' : 'Enable strategy hints'}
             >
-              {hintsOn ? 'Hints On' : 'Hints'}
+              <span className="btn-icon">💡</span> {hintsOn ? 'Hints On' : 'Hints'}
             </button>
-            <button className="btn-logout" onClick={handleLogout}>Logout</button>
+            <button className="btn-logout" onClick={handleLogout}>
+              <span className="btn-icon">🚪</span> Logout
+            </button>
           </div>
         </header>
 

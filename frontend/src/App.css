@@ -1199,7 +1199,7 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 .top-bar-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   pointer-events: all;
 }
 
@@ -1267,23 +1267,39 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 }
 .btn-logout {
   pointer-events: all;
-  padding: 5px 16px;
-  background: rgba(200,16,46,0.08);
-  border: 1px solid rgba(200,16,46,0.4);
-  color: rgba(255,120,120,0.7);
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  background: rgba(200, 16, 46, 0.10);
+  border: 1px solid rgba(200, 16, 46, 0.30);
+  color: rgba(255, 130, 130, 0.85);
+  border-radius: 20px;
   font-family: 'Inter', sans-serif;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.2px;
   text-transform: uppercase;
-  transition: all 0.2s;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+.btn-logout .btn-icon {
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.8;
 }
 .btn-logout:hover {
-  background: rgba(200,16,46,0.18);
-  border-color: #c8102e;
-  color: #ff8080;
-  box-shadow: 0 0 12px rgba(200,16,46,0.2);
+  background: rgba(200, 16, 46, 0.22);
+  border-color: rgba(200, 16, 46, 0.6);
+  color: #ff9090;
+  box-shadow: 0 0 14px rgba(200, 16, 46, 0.20), 0 2px 8px rgba(0, 0, 0, 0.3);
+  transform: translateY(-1px);
+}
+.btn-logout:active {
+  transform: translateY(0);
+  box-shadow: 0 0 6px rgba(200, 16, 46, 0.15);
 }
 
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
@@ -1312,24 +1328,39 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 
 .btn-history {
   pointer-events: all;
-  padding: 5px 16px;
-  background: rgba(212,175,55,0.08);
-  border: 1px solid rgba(212,175,55,0.4);
-  color: rgba(232,200,74,0.8);
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  background: rgba(212, 175, 55, 0.10);
+  border: 1px solid rgba(212, 175, 55, 0.30);
+  color: rgba(232, 200, 74, 0.85);
+  border-radius: 20px;
   font-family: 'Inter', sans-serif;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.2px;
   text-transform: uppercase;
-  transition: all 0.2s;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
 }
+.btn-history .btn-icon {
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.8;
+}
 .btn-history:hover {
-  background: rgba(212,175,55,0.18);
-  border-color: var(--gold);
+  background: rgba(212, 175, 55, 0.22);
+  border-color: rgba(212, 175, 55, 0.6);
   color: var(--gold-light);
-  box-shadow: 0 0 12px rgba(212,175,55,0.2);
+  box-shadow: 0 0 14px rgba(212, 175, 55, 0.20), 0 2px 8px rgba(0, 0, 0, 0.3);
+  transform: translateY(-1px);
+}
+.btn-history:active {
+  transform: translateY(0);
+  box-shadow: 0 0 6px rgba(212, 175, 55, 0.15);
 }
 
 
@@ -1631,31 +1662,49 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
 
 .btn-hints {
   pointer-events: all;
-  padding: 5px 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
   background: rgba(76, 175, 80, 0.08);
-  border: 1px solid rgba(76, 175, 80, 0.35);
-  color: rgba(126, 219, 138, 0.6);
-  border-radius: 6px;
+  border: 1px solid rgba(76, 175, 80, 0.28);
+  color: rgba(126, 219, 138, 0.70);
+  border-radius: 20px;
   font-family: 'Inter', sans-serif;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.2px;
   text-transform: uppercase;
-  transition: all 0.2s;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
 }
+.btn-hints .btn-icon {
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
 .btn-hints:hover {
-  background: rgba(76, 175, 80, 0.16);
-  border-color: var(--felt-bright);
+  background: rgba(76, 175, 80, 0.18);
+  border-color: rgba(76, 175, 80, 0.55);
   color: var(--text-green);
-  box-shadow: 0 0 12px rgba(76, 175, 80, 0.15);
+  box-shadow: 0 0 14px rgba(76, 175, 80, 0.18), 0 2px 8px rgba(0, 0, 0, 0.3);
+  transform: translateY(-1px);
+}
+.btn-hints:hover .btn-icon { opacity: 1; }
+.btn-hints:active {
+  transform: translateY(0);
+  box-shadow: 0 0 6px rgba(76, 175, 80, 0.12);
 }
 .btn-hints.is-active {
-  background: rgba(76, 175, 80, 0.2);
-  border-color: var(--felt-bright);
+  background: rgba(76, 175, 80, 0.22);
+  border-color: rgba(76, 175, 80, 0.6);
   color: var(--text-green);
-  box-shadow: 0 0 10px rgba(76, 175, 80, 0.25), inset 0 0 8px rgba(76, 175, 80, 0.1);
+  box-shadow: 0 0 12px rgba(76, 175, 80, 0.28), inset 0 0 8px rgba(76, 175, 80, 0.08);
 }
+.btn-hints.is-active .btn-icon { opacity: 1; }
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1737,4 +1786,7 @@ button { font-family: inherit; cursor: pointer; border: none; outline: none; }
   .hint-icon { font-size: 1.1rem; }
   .hint-label { font-size: 0.72rem; }
   .btn-hints { padding: 4px 10px; font-size: 9px; }
+  .btn-history { padding: 4px 10px; font-size: 9px; }
+  .btn-logout { padding: 4px 10px; font-size: 9px; }
+  .btn-icon { font-size: 10px !important; }
 }
