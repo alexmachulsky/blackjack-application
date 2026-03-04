@@ -42,6 +42,77 @@ def _cleanup_stale_games() -> None:
         logger.info(f"Cleaned up stale game engine: {gid}")
 
 
+def _reconstruct_engine(game: Game) -> GameEngine:
+    """
+    Reconstruct a GameEngine from persisted GameCard rows.
+
+    This is needed when the server restarts (or the in-memory dict is evicted)
+    while a game is still active in the DB. The deck is rebuilt from a fresh
+    shuffled deck minus the dealt cards so the game can continue.
+    """
+    engine = GameEngine()
+
+    # Load cards grouped by owner and hand_index
+    player_cards_by_hand: Dict[int, list] = {}
+    dealer_cards = []
+
+    for gc in sorted(game.cards, key=lambda c: (c.hand_index, c.order_index)):
+        card = Card(Rank(gc.card_rank), Suit(gc.card_suit))
+        if gc.owner == "player":
+            player_cards_by_hand.setdefault(gc.hand_index, []).append(card)
+        else:
+            dealer_cards.append(card)
+
+    # Rebuild player hands
+    hand_indices = sorted(player_cards_by_hand.keys())
+    engine.player_hands = []
+    for hi in hand_indices:
+        hand = Hand()
+        for c in player_cards_by_hand[hi]:
+            hand.add_card(c)
+        engine.player_hands.append(hand)
+
+    if not engine.player_hands:
+        engine.player_hands = [Hand()]
+
+    # Rebuild dealer hand
+    engine.dealer_hand = Hand()
+    for c in dealer_cards:
+        engine.dealer_hand.add_card(c)
+
+    # Restore split state
+    engine.is_split = game.is_split
+    if engine.is_split:
+        # Infer current hand index: the last hand that isn't busted yet
+        engine.current_hand_index = 0
+        for i, hand in enumerate(engine.player_hands):
+            if not hand.is_bust() and len(hand.cards) > 0:
+                engine.current_hand_index = i
+    else:
+        engine.current_hand_index = 0
+
+    # Restore hand bets — for non-split: single bet; for split: one per hand
+    bet = Decimal(str(game.bet_amount))
+    if engine.is_split:
+        per_hand_bet = bet / Decimal(str(len(engine.player_hands)))
+        engine.hand_bets = [per_hand_bet] * len(engine.player_hands)
+    else:
+        engine.hand_bets = [bet]
+
+    # Remove dealt cards from the deck so future deals don't duplicate
+    dealt = set()
+    for gc in game.cards:
+        dealt.add((gc.card_rank, gc.card_suit))
+    engine.deck.cards = [
+        c for c in engine.deck.cards if (c.rank.value, c.suit.value) not in dealt
+    ]
+
+    engine.game_over = False
+
+    logger.info(f"Reconstructed engine for game {game.id} from DB cards")
+    return engine
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -88,12 +159,13 @@ def get_active_game(
 
     entry = active_games.get(str(game.id))
     if not entry:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Game engine not found",
-        )
+        # Engine was evicted (server restart, TTL cleanup, etc.)
+        # Reconstruct from DB cards so the game can continue.
+        engine = _reconstruct_engine(game)
+        active_games[str(game.id)] = (engine, time.monotonic())
+    else:
+        engine, _ = entry
 
-    engine, _ = entry
     # Update last-activity timestamp
     active_games[str(game.id)] = (engine, time.monotonic())
 

@@ -207,8 +207,9 @@ def test_hit_on_finished_game_returns_400(client):
     assert resp.status_code == 400
 
 
-def test_hit_on_game_with_no_engine_returns_400(client):
-    """Simulate a server restart: game exists in DB but engine was lost."""
+def test_hit_on_game_with_no_engine_reconstructs_and_continues(client):
+    """Simulate a server restart: game exists in DB but engine was lost.
+    The service should reconstruct the engine from DB cards and continue."""
     headers = _make_headers(client)
     start = _start_game(client, headers)
     game_id = start["game_id"]
@@ -217,8 +218,10 @@ def test_hit_on_game_with_no_engine_returns_400(client):
         # Remove the engine to simulate missing in-memory state
         active_games.pop(str(game_id), None)
         resp = client.post("/game/hit", headers=headers, json={"game_id": game_id})
-        assert resp.status_code == 400
-        assert "engine" in resp.json()["detail"].lower()
+        # Should succeed — engine reconstructed from DB
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] in ("active", "finished")
 
 
 def test_hit_returns_game_state_or_finishes(client):
