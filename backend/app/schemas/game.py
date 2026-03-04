@@ -68,6 +68,7 @@ class GameAction(BaseModel):
     @classmethod
     def validate_uuid(cls, v: str) -> str:
         import uuid as _uuid
+
         try:
             _uuid.UUID(v)
         except (ValueError, AttributeError):

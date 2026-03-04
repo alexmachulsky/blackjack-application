@@ -1,5 +1,14 @@
 import uuid
-from sqlalchemy import Boolean, Column, Index, String, Numeric, DateTime, ForeignKey, Integer
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Index,
+    String,
+    Numeric,
+    DateTime,
+    ForeignKey,
+    Integer,
+)
 from sqlalchemy import Uuid
 from sqlalchemy.orm import relationship
 
@@ -9,9 +18,7 @@ from app.utils.time import utc_now
 
 class Game(Base):
     __tablename__ = "games"
-    __table_args__ = (
-        Index("ix_games_user_status", "user_id", "status"),
-    )
+    __table_args__ = (Index("ix_games_user_status", "user_id", "status"),)
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False)

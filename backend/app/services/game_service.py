@@ -35,8 +35,7 @@ def _cleanup_stale_games() -> None:
     """Remove active_games entries older than _ACTIVE_GAME_TTL."""
     now = time.monotonic()
     stale_ids = [
-        gid for gid, (_, ts) in active_games.items()
-        if now - ts > _ACTIVE_GAME_TTL
+        gid for gid, (_, ts) in active_games.items() if now - ts > _ACTIVE_GAME_TTL
     ]
     for gid in stale_ids:
         active_games.pop(gid, None)
@@ -310,9 +309,7 @@ def start_game(bet_amount: Decimal, user: User, db: Session) -> GameState:
 
     # Prevent multiple concurrent active games per user
     existing_active = (
-        db.query(Game)
-        .filter(Game.user_id == user.id, Game.status == "active")
-        .first()
+        db.query(Game).filter(Game.user_id == user.id, Game.status == "active").first()
     )
     if existing_active:
         raise HTTPException(
