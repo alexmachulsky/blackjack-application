@@ -1,25 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { statsApi } from '../services/api';
 import MiniCard from '../components/MiniCard';
-
-/* ── Result helpers (shared with GamePage — could be extracted later) ──── */
-function resultClass(r) {
-  if (!r) return '';
-  const s = r.toLowerCase();
-  if (s.includes('blackjack')) return 'blackjack';
-  if (s.includes('win'))       return 'win';
-  if (s.includes('push') || s.includes('tie')) return 'push';
-  return 'lose';
-}
-
-function resultLabel(r) {
-  if (!r) return '';
-  const s = r.toLowerCase();
-  if (s.includes('blackjack')) return 'Blackjack!';
-  if (s.includes('win'))       return 'Win';
-  if (s.includes('push') || s.includes('tie')) return 'Push';
-  return 'Loss';
-}
+import { resultClass, resultLabel } from '../utils/resultHelpers';
 
 function formatDate(iso) {
   const d = new Date(iso);

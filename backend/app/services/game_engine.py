@@ -328,11 +328,12 @@ class GameEngine:
                     ],
                     "value": hand.value(),
                     "status": status,
-                    # Double-down eligible only for the current hand with 2 cards
+                    # Double-down eligible: 2 cards, current hand, active, not split
                     "can_double_down": (
                         len(hand.cards) == 2
                         and i == self.current_hand_index
                         and not self.game_over
+                        and not self.is_split
                     ),
                 }
             )

@@ -22,7 +22,7 @@ router = APIRouter()
 )
 @limiter.limit("5/minute")
 def register(request: Request, user_data: UserRegister, db: Session = Depends(get_db)):
-    # Check if user exists
+    # Check if user exists (email already normalized by schema)
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
         raise HTTPException(

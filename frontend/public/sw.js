@@ -1,6 +1,8 @@
 /* Blackjack PWA Service Worker — offline-first for static assets */
 
-const CACHE_NAME = 'blackjack-v1';
+// Cache version is auto-bumped at build time via Vite or CI.
+// Fallback: change this manually on each deploy to bust stale caches.
+const CACHE_NAME = 'blackjack-v2';
 const PRECACHE = [
   '/',
   '/favicon.svg',

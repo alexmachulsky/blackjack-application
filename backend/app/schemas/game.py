@@ -1,5 +1,5 @@
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Optional
 from datetime import datetime
 import uuid
@@ -63,6 +63,16 @@ class GameState(BaseModel):
 
 class GameAction(BaseModel):
     game_id: str
+
+    @field_validator("game_id")
+    @classmethod
+    def validate_uuid(cls, v: str) -> str:
+        import uuid as _uuid
+        try:
+            _uuid.UUID(v)
+        except (ValueError, AttributeError):
+            raise ValueError("game_id must be a valid UUID")
+        return v
 
 
 class GameResponse(BaseModel):

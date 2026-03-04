@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useContext } from 'react';
+import { useState, useEffect, useCallback, useContext, useRef } from 'react';
 import AuthContext from '../context/AuthContext';
 import { gameApi, statsApi } from '../services/api';
 import { soundFX } from '../services/soundEffects';
@@ -6,24 +6,7 @@ import HandRow, { GhostHand } from '../components/HandRow';
 import TableChipStack, { CHIPS } from '../components/TableChipStack';
 import Confetti from '../components/Confetti';
 import StrategyHint from '../components/StrategyHint';
-
-/* ─── Result helpers ─────────────────────────────────────────────────────── */
-function resultClass(r) {
-  if (!r) return '';
-  const s = r.toLowerCase();
-  if (s.includes('blackjack')) return 'blackjack';
-  if (s.includes('win'))       return 'win';
-  if (s.includes('push') || s.includes('tie')) return 'push';
-  return 'lose';
-}
-function resultLabel(r) {
-  if (!r) return '';
-  const s = r.toLowerCase();
-  if (s.includes('blackjack')) return 'Blackjack! 🎉';
-  if (s.includes('win'))       return 'You Win!';
-  if (s.includes('push') || s.includes('tie')) return 'Push';
-  return 'Dealer Wins';
-}
+import { resultClass, resultLabel } from '../utils/resultHelpers';
 
 /* ─── Chips ──────────────────────────────────────────────────────────────── */
 // CHIPS and TableChipStack are imported from components/TableChipStack
@@ -75,13 +58,21 @@ export default function GamePage({ onShowHistory }) {
     try { return localStorage.getItem('bj_hints') === '1'; } catch { return false; }
   });
 
+  // Ref-based guard against rapid double-clicks (state is async)
+  const actionLock = useRef(false);
+  // Track timeouts so we can clean up on unmount
+  const timeoutsRef = useRef([]);
+
   const toggleHints = () => {
     const next = !hintsOn;
     setHintsOn(next);
     try { localStorage.setItem('bj_hints', next ? '1' : '0'); } catch { /* noop */ }
   };
 
-  useEffect(() => { fetchStats(); }, []);
+  useEffect(() => { fetchStats(); 
+    // Cleanup pending timeouts on unmount
+    return () => { timeoutsRef.current.forEach(clearTimeout); };
+  }, []);
 
   const armSound = () => {
     soundFX.unlock().catch(() => {});
@@ -122,11 +113,25 @@ export default function GamePage({ onShowHistory }) {
   const hideDealerLastCard = isPlaying && dealerCardsForDisplay.length > 1;
 
   /* ── Bet helpers ──────────────────────────────────────────────────────── */
+  const MIN_BET = 5;
+  const MAX_BET = 2000;
+
   const addChip = (v) => {
     if (canBet) {
       armSound();
+      const next = betAmount + v;
+      if (balance != null && next > balance) {
+        setError('Bet exceeds your balance');
+        soundFX.playError();
+        return;
+      }
+      if (next > MAX_BET) {
+        setError(`Maximum bet is $${MAX_BET}`);
+        soundFX.playError();
+        return;
+      }
       soundFX.playChip();
-      setBet(b => b + v);
+      setBet(next);
     }
   };
   const clearBet = () => {
@@ -165,19 +170,24 @@ export default function GamePage({ onShowHistory }) {
 
   /* ── Deal ─────────────────────────────────────────────────────────────── */
   async function handleDeal() {
+    if (actionLock.current) return;
+    actionLock.current = true;
     armSound();
-    if (betAmount <= 0) {
-      setError('Place a bet first');
+    if (betAmount <= 0 || betAmount < MIN_BET) {
+      setError(`Minimum bet is $${MIN_BET}`);
       soundFX.playError();
+      actionLock.current = false;
       return;
     }
+    const savedBalance = balance;
     setError(''); setLoading(true);
     try {
       const r = await gameApi.startGame(betAmount);
       const g = r.data ?? r;
       soundFX.playDealSequence(4, 0.082);
       if (g.status === 'finished') {
-        window.setTimeout(() => playOutcomeSound(g), 420);
+        const tid = window.setTimeout(() => playOutcomeSound(g), 420);
+        timeoutsRef.current.push(tid);
         if ((g.result ?? '').toLowerCase().includes('blackjack')) {
           setShowConfetti(true);
         }
@@ -188,11 +198,15 @@ export default function GamePage({ onShowHistory }) {
     } catch (e) {
       soundFX.playError();
       setError(e.response?.data?.detail ?? 'Failed to start game');
-    } finally { setLoading(false); }
+      // Rollback optimistic balance on failure
+      if (savedBalance != null) setBalance(savedBalance);
+    } finally { setLoading(false); actionLock.current = false; }
   }
 
   /* ── In-game actions ──────────────────────────────────────────────────── */
   async function handleAction(action) {
+    if (actionLock.current) return;
+    actionLock.current = true;
     armSound();
     setError(''); setLoading(true);
     const previousGame = game;
@@ -227,7 +241,8 @@ export default function GamePage({ onShowHistory }) {
 
       if (g.status === 'finished') {
         const resultDelay = dealerDelta > 0 ? 150 + dealerDelta * 90 : 140;
-        window.setTimeout(() => playOutcomeSound(g), resultDelay);
+        const tid = window.setTimeout(() => playOutcomeSound(g), resultDelay);
+        timeoutsRef.current.push(tid);
         const combined = Array.isArray(g.results) ? g.results.join(',') : (g.result ?? '');
         if (combined.toLowerCase().includes('blackjack')) {
           setShowConfetti(true);
@@ -242,7 +257,7 @@ export default function GamePage({ onShowHistory }) {
     } catch (e) {
       soundFX.playError();
       setError(e.response?.data?.detail ?? 'Action failed');
-    } finally { setLoading(false); }
+    } finally { setLoading(false); actionLock.current = false; }
   }
 
   function handleNewGame() {
@@ -255,21 +270,32 @@ export default function GamePage({ onShowHistory }) {
   }
 
   /* ── Keyboard shortcuts ───────────────────────────────────────────────── */
+  // Use refs to avoid stale closures in the keyboard handler
+  const gameRef = useRef(game);
+  const loadingRef = useRef(loading);
+  useEffect(() => { gameRef.current = game; }, [game]);
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+
   const handleKeyboard = useCallback((e) => {
     // Ignore if user is typing in an input
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (loadingRef.current || actionLock.current) return;
     const key = e.key.toLowerCase();
-    if (key === 'h' && isPlaying && !loading) handleAction('hit');
-    else if (key === 's' && isPlaying && !loading) handleAction('stand');
-    else if (key === 'd' && canDouble && !loading) handleAction('double');
-    else if (key === 'p' && canSplit && !loading) handleAction('split');
+    const g = gameRef.current;
+    const playing = g?.status === 'active';
+    const finished = g?.status === 'finished';
+    const dbl = playing && !g?.is_split && !!g?.can_double_down;
+    const spl = playing && !g?.is_split && !!g?.can_split;
+    if (key === 'h' && playing) handleAction('hit');
+    else if (key === 's' && playing) handleAction('stand');
+    else if (key === 'd' && dbl) handleAction('double');
+    else if (key === 'p' && spl) handleAction('split');
     else if (key === ' ' || key === 'enter') {
       e.preventDefault();
-      if (canBet && !isFinished && betAmount > 0 && !loading) handleDeal();
-      else if (isFinished && !loading) handleNewGame();
+      if (!g && betAmount > 0) handleDeal();
+      else if (finished) handleNewGame();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, canDouble, canSplit, canBet, isFinished, betAmount, loading, game]);
+  }, [betAmount]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyboard);
@@ -413,7 +439,7 @@ export default function GamePage({ onShowHistory }) {
         {isFinished && !isSplit && game?.result && (
           <div className="result-overlay" style={{ marginTop: 8 }}>
             <div className={`result-badge ${resultClass(game.result)}`}>
-              {resultLabel(game.result)}
+              {resultLabel(game.result, { verbose: true })}
             </div>
             {game.payout != null && (
               <span className="result-payout">

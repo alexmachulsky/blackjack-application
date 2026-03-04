@@ -6,6 +6,7 @@ result resolution) so that routes remain thin request → service → response l
 """
 
 import logging
+import time
 import uuid
 from decimal import Decimal
 from typing import Dict, List, Tuple
@@ -23,7 +24,23 @@ from app.services.deck import Card, Rank, Suit
 logger = logging.getLogger(__name__)
 
 # In-memory storage for active game engines (in production, use Redis)
-active_games: Dict[str, GameEngine] = {}
+# Each value is (engine, last_activity_timestamp)
+active_games: Dict[str, Tuple[GameEngine, float]] = {}
+
+# Stale game TTL in seconds (30 minutes)
+_ACTIVE_GAME_TTL = 30 * 60
+
+
+def _cleanup_stale_games() -> None:
+    """Remove active_games entries older than _ACTIVE_GAME_TTL."""
+    now = time.monotonic()
+    stale_ids = [
+        gid for gid, (_, ts) in active_games.items()
+        if now - ts > _ACTIVE_GAME_TTL
+    ]
+    for gid in stale_ids:
+        active_games.pop(gid, None)
+        logger.info(f"Cleaned up stale game engine: {gid}")
 
 
 # ---------------------------------------------------------------------------
@@ -70,12 +87,16 @@ def get_active_game(
             detail="Game is not active",
         )
 
-    engine = active_games.get(str(game.id))
-    if not engine:
+    entry = active_games.get(str(game.id))
+    if not entry:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Game engine not found",
         )
+
+    engine, _ = entry
+    # Update last-activity timestamp
+    active_games[str(game.id)] = (engine, time.monotonic())
 
     return game, engine
 
@@ -272,6 +293,9 @@ def _log_game_event(msg: str, user_id, game_id, bet_amount=None):
 def start_game(bet_amount: Decimal, user: User, db: Session) -> GameState:
     """Validate bet, create game, deal initial cards, and return state."""
 
+    # Periodic cleanup of stale in-memory game engines
+    _cleanup_stale_games()
+
     # Server-side min/max bet enforcement
     if bet_amount < Decimal(str(settings.MIN_BET)):
         raise HTTPException(
@@ -283,6 +307,21 @@ def start_game(bet_amount: Decimal, user: User, db: Session) -> GameState:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Maximum bet is ${settings.MAX_BET}",
         )
+
+    # Prevent multiple concurrent active games per user
+    existing_active = (
+        db.query(Game)
+        .filter(Game.user_id == user.id, Game.status == "active")
+        .first()
+    )
+    if existing_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You already have an active game",
+        )
+
+    # Row-level lock to prevent concurrent balance manipulation
+    user = db.query(User).filter(User.id == user.id).with_for_update().first()
 
     if bet_amount > user.balance:
         raise HTTPException(
@@ -304,7 +343,7 @@ def start_game(bet_amount: Decimal, user: User, db: Session) -> GameState:
     engine = GameEngine()
     engine.deal_initial_cards()
     engine.hand_bets = [bet_amount]
-    active_games[str(game.id)] = engine
+    active_games[str(game.id)] = (engine, time.monotonic())
 
     # Persist initial cards
     for idx, card in enumerate(engine.player_hand.cards):
@@ -337,6 +376,13 @@ def player_hit(game_id: str, user: User, db: Session) -> GameState:
     """Player hits — request another card on the current hand."""
 
     game, engine = get_active_game(game_id, user.id, db)
+
+    # Split aces: no further hitting allowed
+    if engine.split_aces:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot hit on split aces",
+        )
 
     card = engine.player_hit()
 
@@ -424,6 +470,9 @@ def player_double_down(game_id: str, user: User, db: Session) -> GameState:
 
     additional_bet = Decimal(str(engine.hand_bets[hand_idx]))
 
+    # Row-level lock to prevent concurrent balance manipulation
+    user = db.query(User).filter(User.id == user.id).with_for_update().first()
+
     if user.balance < additional_bet:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -484,6 +533,10 @@ def player_split(game_id: str, user: User, db: Session) -> GameState:
         if engine.hand_bets
         else Decimal(str(game.bet_amount))
     )
+
+    # Row-level lock to prevent concurrent balance manipulation
+    user = db.query(User).filter(User.id == user.id).with_for_update().first()
+
     if user.balance < hand0_bet:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -503,19 +556,30 @@ def player_split(game_id: str, user: User, db: Session) -> GameState:
 
     # Persist cards: after split, hand 0 has [original_card, card1]
     #                             hand 1 has [split_card, card2]
-    # The original cards are already in DB; we only need to save the two new dealt cards.
+    # The original second card (now in hand 1) was saved to DB as hand_index=0
+    # during start_game. Move it to hand_index=1 to avoid a phantom duplicate.
+    split_card_obj = engine.player_hands[1].cards[0]  # original card moved to hand 1
+    orphan = (
+        db.query(GameCard)
+        .filter(
+            GameCard.game_id == game.id,
+            GameCard.owner == "player",
+            GameCard.hand_index == 0,
+            GameCard.card_rank == split_card_obj.rank.value,
+            GameCard.card_suit == split_card_obj.suit.value,
+        )
+        .first()
+    )
+    if orphan:
+        orphan.hand_index = 1
+        orphan.order_index = 0
+
+    # Save the newly dealt cards
     existing_h0 = len(
         [c for c in game.cards if c.owner == "player" and c.hand_index == 0]
     )
     save_player_card(card1, game.id, hand_index=0, order_index=existing_h0, db=db)
-
-    existing_h1 = len(
-        [c for c in game.cards if c.owner == "player" and c.hand_index == 1]
-    )
-    # Also persist the split card (the one moved to hand 1 from DB perspective)
-    split_card = engine.player_hands[1].cards[0]  # original card moved to hand 1
-    save_player_card(split_card, game.id, hand_index=1, order_index=existing_h1, db=db)
-    save_player_card(card2, game.id, hand_index=1, order_index=existing_h1 + 1, db=db)
+    save_player_card(card2, game.id, hand_index=1, order_index=1, db=db)
 
     db.commit()
 

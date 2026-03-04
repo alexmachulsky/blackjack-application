@@ -15,6 +15,7 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     balance = Column(Numeric(10, 2), default=1000.00, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     # Relationships
     games = relationship("Game", back_populates="user")

@@ -12,6 +12,7 @@ Strategy
 
 import pytest
 from fastapi.testclient import TestClient
+import time
 
 from app.services.game_service import active_games
 from app.services.game_engine import GameEngine
@@ -52,6 +53,11 @@ def _make_engine_with_hand(
     engine.player_hands[0].cards = list(player_cards)
     engine.dealer_hand.cards = list(dealer_cards)
     return engine
+
+
+def _inject_engine(game_id, engine: GameEngine):
+    """Store engine in active_games with the expected (engine, timestamp) tuple."""
+    active_games[str(game_id)] = (engine, time.monotonic())
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -229,7 +235,7 @@ def test_hit_returns_game_state_or_finishes(client):
         player_cards=[Card(Rank.SEVEN, Suit.HEARTS), Card(Rank.EIGHT, Suit.CLUBS)],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SIX, Suit.DIAMONDS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     resp = client.post("/game/hit", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 200
@@ -254,7 +260,7 @@ def test_hit_bust_resolves_game(client):
     )
     # deck.deal() uses list.pop() — append so the TEN is dealt next
     engine.deck.cards.append(Card(Rank.TEN, Suit.CLUBS))
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     resp = client.post("/game/hit", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 200
@@ -306,7 +312,7 @@ def test_stand_shows_full_dealer_hand(client):
         player_cards=[Card(Rank.TEN, Suit.HEARTS), Card(Rank.QUEEN, Suit.CLUBS)],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SIX, Suit.DIAMONDS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     resp = client.post("/game/stand", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 200
@@ -334,7 +340,7 @@ def test_double_down_success(client):
         player_cards=[Card(Rank.FIVE, Suit.HEARTS), Card(Rank.SIX, Suit.CLUBS)],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SEVEN, Suit.DIAMONDS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     resp = client.post("/game/double-down", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 200
@@ -361,7 +367,7 @@ def test_double_down_not_available_returns_400(client):
         ],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SEVEN, Suit.HEARTS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     resp = client.post("/game/double-down", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 400
@@ -386,7 +392,7 @@ def test_double_down_insufficient_balance_returns_400(client):
         player_cards=[Card(Rank.FIVE, Suit.HEARTS), Card(Rank.SIX, Suit.CLUBS)],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SEVEN, Suit.DIAMONDS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     resp = client.post("/game/double-down", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 400
@@ -415,7 +421,7 @@ def test_double_down_after_split_returns_400(client):
         player_cards=[Card(Rank.EIGHT, Suit.HEARTS), Card(Rank.EIGHT, Suit.CLUBS)],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SEVEN, Suit.DIAMONDS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     split_resp = client.post("/game/split", headers=headers, json={"game_id": game_id})
     assert split_resp.status_code == 200
@@ -446,7 +452,7 @@ def test_split_success(client):
         player_cards=[Card(Rank.EIGHT, Suit.HEARTS), Card(Rank.EIGHT, Suit.CLUBS)],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SEVEN, Suit.DIAMONDS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     resp = client.post("/game/split", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 200
@@ -469,7 +475,7 @@ def test_split_aces_auto_resolves(client):
         player_cards=[Card(Rank.ACE, Suit.HEARTS), Card(Rank.ACE, Suit.CLUBS)],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SEVEN, Suit.DIAMONDS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     resp = client.post("/game/split", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 200
@@ -490,7 +496,7 @@ def test_split_cannot_split_returns_400(client):
         player_cards=[Card(Rank.FIVE, Suit.HEARTS), Card(Rank.SIX, Suit.CLUBS)],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SEVEN, Suit.DIAMONDS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     resp = client.post("/game/split", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 400
@@ -513,7 +519,7 @@ def test_split_insufficient_balance_returns_400(client):
         player_cards=[Card(Rank.EIGHT, Suit.HEARTS), Card(Rank.EIGHT, Suit.CLUBS)],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SEVEN, Suit.DIAMONDS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     resp = client.post("/game/split", headers=headers, json={"game_id": game_id})
     assert resp.status_code == 400
@@ -549,7 +555,7 @@ def test_hit_on_split_hand_advances_or_finishes(client):
         player_cards=[Card(Rank.SEVEN, Suit.HEARTS), Card(Rank.SEVEN, Suit.CLUBS)],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SIX, Suit.DIAMONDS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     split_resp = client.post("/game/split", headers=headers, json={"game_id": game_id})
     assert split_resp.status_code == 200
@@ -573,7 +579,7 @@ def test_stand_on_split_advances_to_next_hand(client):
         player_cards=[Card(Rank.NINE, Suit.HEARTS), Card(Rank.NINE, Suit.CLUBS)],
         dealer_cards=[Card(Rank.TEN, Suit.SPADES), Card(Rank.SIX, Suit.DIAMONDS)],
     )
-    active_games[str(game_id)] = engine
+    _inject_engine(game_id, engine)
 
     split_resp = client.post("/game/split", headers=headers, json={"game_id": game_id})
     assert split_resp.status_code == 200
