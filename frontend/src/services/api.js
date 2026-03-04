@@ -90,6 +90,15 @@ export const getHistory = (page = 1, pageSize = 20) => {
   return api.get('/api/v1/stats/history', { params: { page, page_size: pageSize } });
 };
 
+// Daily bonus endpoints
+export const getDailyBonusStatus = () => {
+  return api.get('/api/v1/auth/daily-bonus');
+};
+
+export const claimDailyBonus = () => {
+  return api.post('/api/v1/auth/daily-bonus');
+};
+
 /* ── Namespace exports for components ────────────────────────────────────── */
 export const gameApi = {
   startGame,
@@ -102,6 +111,11 @@ export const gameApi = {
 export const statsApi = {
   getStats,
   getHistory,
+};
+
+export const bonusApi = {
+  getStatus: getDailyBonusStatus,
+  claim: claimDailyBonus,
 };
 
 export default api;

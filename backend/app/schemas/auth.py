@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr, field_validator
 from pydantic import ConfigDict
+from datetime import datetime
+from typing import Optional
 import uuid
 
 
@@ -47,3 +49,17 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
     balance: float
+
+
+class DailyBonusStatusResponse(BaseModel):
+    available: bool
+    streak: int
+    bonus_amount: float
+    next_available_at: Optional[datetime] = None
+
+
+class DailyBonusClaimResponse(BaseModel):
+    bonus_amount: float
+    new_balance: float
+    streak: int
+    message: str

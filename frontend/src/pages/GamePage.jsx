@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useContext, useRef } from 'react';
 import AuthContext from '../context/AuthContext';
-import { gameApi, statsApi } from '../services/api';
+import { gameApi, statsApi, bonusApi } from '../services/api';
 import { soundFX } from '../services/soundEffects';
 import HandRow, { GhostHand } from '../components/HandRow';
 import TableChipStack, { CHIPS } from '../components/TableChipStack';
 import Confetti from '../components/Confetti';
 import StrategyHint from '../components/StrategyHint';
+import DailyBonusModal from '../components/DailyBonusModal';
 import { resultClass, resultLabel } from '../utils/resultHelpers';
 
 /* ─── Chips ──────────────────────────────────────────────────────────────── */
@@ -57,11 +58,15 @@ export default function GamePage({ onShowHistory }) {
   const [hintsOn, setHintsOn] = useState(() => {
     try { return localStorage.getItem('bj_hints') === '1'; } catch { return false; }
   });
+  const [dealerReveal, setDealerReveal] = useState(false);
+  const [bonusInfo, setBonusInfo] = useState(null);   // { streak, bonus_amount }
+  const [showBonus, setShowBonus] = useState(false);
 
   // Ref-based guard against rapid double-clicks (state is async)
   const actionLock = useRef(false);
   // Track timeouts so we can clean up on unmount
   const timeoutsRef = useRef([]);
+  const prevStatusRef = useRef(null);
 
   const toggleHints = () => {
     const next = !hintsOn;
@@ -69,7 +74,7 @@ export default function GamePage({ onShowHistory }) {
     try { localStorage.setItem('bj_hints', next ? '1' : '0'); } catch { /* noop */ }
   };
 
-  useEffect(() => { fetchStats(); 
+  useEffect(() => { fetchStats(); checkDailyBonus();
     // Cleanup pending timeouts on unmount
     const timers = timeoutsRef.current;
     return () => { timers.forEach(clearTimeout); };
@@ -88,6 +93,27 @@ export default function GamePage({ onShowHistory }) {
     } catch (e) {
       console.error('Failed to fetch stats:', e);
     }
+  }
+
+  async function checkDailyBonus() {
+    try {
+      const r = await bonusApi.getStatus();
+      const data = r.data ?? r;
+      if (data.available) {
+        setBonusInfo(data);
+        setShowBonus(true);
+      }
+    } catch {
+      // Bonus check is non-critical — fail silently
+    }
+  }
+
+  async function handleClaimBonus() {
+    const r = await bonusApi.claim();
+    const data = r.data ?? r;
+    // Refresh balance
+    setBalance(data.new_balance);
+    return data;
   }
 
   /* ── API field extraction ─────────────────────────────────────────────── */
@@ -112,6 +138,16 @@ export default function GamePage({ onShowHistory }) {
     ? [...dealerCards, { rank: '', suit: '' }]
     : dealerCards;
   const hideDealerLastCard = isPlaying && dealerCardsForDisplay.length > 1;
+
+  // Detect game transition from active → finished for dealer card reveal
+  useEffect(() => {
+    if (prevStatusRef.current === 'active' && game?.status === 'finished') {
+      setDealerReveal(true);
+      const t = setTimeout(() => setDealerReveal(false), 800);
+      timeoutsRef.current.push(t);
+    }
+    prevStatusRef.current = game?.status ?? null;
+  }, [game?.status]);
 
   /* ── Bet helpers ──────────────────────────────────────────────────────── */
   const MIN_BET = 5;
@@ -416,7 +452,7 @@ export default function GamePage({ onShowHistory }) {
         <div className="dealer-zone">
           <span className="zone-label">Dealer</span>
           {dealerCards.length > 0
-            ? <HandRow cards={dealerCardsForDisplay} faceDownLast={hideDealerLastCard} />
+            ? <HandRow cards={dealerCardsForDisplay} faceDownLast={hideDealerLastCard} revealAll={dealerReveal} />
             : <GhostHand />
           }
           {isFinished && dealerValue > 0 && (
@@ -632,6 +668,16 @@ export default function GamePage({ onShowHistory }) {
         </div>
 
       </div>{/* /bottom-strip */}
+
+      {/* ── Daily Bonus Modal ───────────────────────────────────────────── */}
+      {showBonus && bonusInfo && (
+        <DailyBonusModal
+          streak={bonusInfo.streak}
+          bonusAmount={bonusInfo.bonus_amount}
+          onClaim={handleClaimBonus}
+          onClose={() => setShowBonus(false)}
+        />
+      )}
 
     </div>
   );
