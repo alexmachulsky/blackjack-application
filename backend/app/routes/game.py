@@ -81,6 +81,15 @@ def split(
     return game_service.player_split(action.game_id, current_user, db)
 
 
+@router.get("/active", response_model=GameState)
+def get_active(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Resume the current active game, if any."""
+    return game_service.get_active_game_for_user(current_user, db)
+
+
 @router.get("/{game_id}", response_model=GameState)
 def get_game(
     game_id: str,

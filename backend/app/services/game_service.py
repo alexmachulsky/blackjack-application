@@ -590,6 +590,19 @@ def player_split(game_id: str, user: User, db: Session) -> GameState:
     return build_active_state(game, engine, user)
 
 
+def get_active_game_for_user(user: User, db: Session) -> GameState:
+    """Return the user's current active game, or 404 if none."""
+    game = (
+        db.query(Game).filter(Game.user_id == user.id, Game.status == "active").first()
+    )
+    if not game:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active game",
+        )
+    return get_game_by_id(str(game.id), user, db)
+
+
 def get_game_by_id(game_id: str, user: User, db: Session) -> GameState:
     """Get game state by ID (reconstructed from DB)."""
 

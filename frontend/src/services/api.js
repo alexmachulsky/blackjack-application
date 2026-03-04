@@ -81,6 +81,10 @@ export const getGame = (gameId) => {
   return api.get(`/api/v1/game/${gameId}`);
 };
 
+export const getActiveGame = () => {
+  return api.get('/api/v1/game/active');
+};
+
 // Stats endpoints
 export const getStats = () => {
   return api.get('/api/v1/stats');
@@ -106,6 +110,7 @@ export const gameApi = {
   stand,
   doubleDown,
   split: splitHand,
+  getActive: getActiveGame,
 };
 
 export const statsApi = {

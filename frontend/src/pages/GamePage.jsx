@@ -74,7 +74,7 @@ export default function GamePage({ onShowHistory }) {
     try { localStorage.setItem('bj_hints', next ? '1' : '0'); } catch { /* noop */ }
   };
 
-  useEffect(() => { fetchStats(); checkDailyBonus();
+  useEffect(() => { fetchStats(); checkDailyBonus(); resumeActiveGame();
     // Cleanup pending timeouts on unmount
     const timers = timeoutsRef.current;
     return () => { timers.forEach(clearTimeout); };
@@ -83,6 +83,18 @@ export default function GamePage({ onShowHistory }) {
   const armSound = () => {
     soundFX.unlock().catch(() => {});
   };
+
+  async function resumeActiveGame() {
+    try {
+      const r = await gameApi.getActive();
+      const g = r.data ?? r;
+      if (g && g.status === 'active') {
+        setGame(g);
+      }
+    } catch {
+      // 404 = no active game, which is fine
+    }
+  }
 
   async function fetchStats() {
     try {
