@@ -37,6 +37,7 @@ services:
       # Build DATABASE_URL from individual env vars so any .env-supplied
       # POSTGRES_PASSWORD is respected (avoids credential mismatch in CI).
       DATABASE_URL: postgresql://${POSTGRES_USER:-blackjack}:${POSTGRES_PASSWORD:-blackjack}@postgres:5432/${POSTGRES_DB:-blackjack}
+      PYTHONPATH: /app
     ports:
       - "8001:8000"
     depends_on:
