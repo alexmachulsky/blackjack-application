@@ -71,7 +71,8 @@ export default function GamePage({ onShowHistory }) {
 
   useEffect(() => { fetchStats(); 
     // Cleanup pending timeouts on unmount
-    return () => { timeoutsRef.current.forEach(clearTimeout); };
+    const timers = timeoutsRef.current;
+    return () => { timers.forEach(clearTimeout); };
   }, []);
 
   const armSound = () => {
@@ -273,8 +274,14 @@ export default function GamePage({ onShowHistory }) {
   // Use refs to avoid stale closures in the keyboard handler
   const gameRef = useRef(game);
   const loadingRef = useRef(loading);
+  const handleActionRef = useRef(handleAction);
+  const handleDealRef = useRef(handleDeal);
+  const handleNewGameRef = useRef(handleNewGame);
   useEffect(() => { gameRef.current = game; }, [game]);
   useEffect(() => { loadingRef.current = loading; }, [loading]);
+  useEffect(() => { handleActionRef.current = handleAction; });
+  useEffect(() => { handleDealRef.current = handleDeal; });
+  useEffect(() => { handleNewGameRef.current = handleNewGame; });
 
   const handleKeyboard = useCallback((e) => {
     // Ignore if user is typing in an input
@@ -286,14 +293,14 @@ export default function GamePage({ onShowHistory }) {
     const finished = g?.status === 'finished';
     const dbl = playing && !g?.is_split && !!g?.can_double_down;
     const spl = playing && !g?.is_split && !!g?.can_split;
-    if (key === 'h' && playing) handleAction('hit');
-    else if (key === 's' && playing) handleAction('stand');
-    else if (key === 'd' && dbl) handleAction('double');
-    else if (key === 'p' && spl) handleAction('split');
+    if (key === 'h' && playing) handleActionRef.current('hit');
+    else if (key === 's' && playing) handleActionRef.current('stand');
+    else if (key === 'd' && dbl) handleActionRef.current('double');
+    else if (key === 'p' && spl) handleActionRef.current('split');
     else if (key === ' ' || key === 'enter') {
       e.preventDefault();
-      if (!g && betAmount > 0) handleDeal();
-      else if (finished) handleNewGame();
+      if (!g && betAmount > 0) handleDealRef.current();
+      else if (finished) handleNewGameRef.current();
     }
   }, [betAmount]);
 
