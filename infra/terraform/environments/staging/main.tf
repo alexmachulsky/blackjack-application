@@ -53,7 +53,7 @@ module "eks" {
   subnet_ids = module.vpc.public_subnet_ids
 
   # Nodes in private subnets — no direct internet exposure, egress via NAT GW
-  node_subnet_ids    = module.vpc.private_subnet_ids
+  node_subnet_ids     = module.vpc.private_subnet_ids
   node_instance_type  = var.node_instance_type
   capacity_type       = "SPOT"
   node_desired_size   = 1
