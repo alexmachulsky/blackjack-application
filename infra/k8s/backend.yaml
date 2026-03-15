@@ -2,7 +2,7 @@
 # Backend — FastAPI application
 #
 # Single replica; scales to 2+ by changing replicas.
-# Pulls image from private ECR — nodes have ECR read-only policy via IAM.
+# Pulls image from GHCR (GitHub Container Registry).
 # ──────────────────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
@@ -45,7 +45,7 @@ spec:
               done
               echo "PostgreSQL is ready!"
         - name: migrate
-          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.34
+          image: ghcr.io/alexmachulsky/blackjack-application/backend:1.0.34
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -65,7 +65,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: backend
-          image: 904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.34
+          image: ghcr.io/alexmachulsky/blackjack-application/backend:1.0.34
           ports:
             - containerPort: 8000
               name: http

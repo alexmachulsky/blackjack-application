@@ -1,150 +1,128 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────────
-# deploy.sh — Deploy the Blackjack application to EKS
+# deploy.sh — Deploy blackjack to Minikube
 #
 # Prerequisites:
-#   - kubectl configured (aws eks update-kubeconfig --name blackjack-staging)
-#   - AWS CLI with access to SSM Parameter Store
-#   - Terraform already applied (EKS cluster exists)
+#   minikube start --driver=docker --cpus=2 --memory=4g
+#   minikube addons enable metrics-server
 #
 # Usage:
-#   ./deploy.sh                          # fetches secrets from SSM
-#   DB_PASSWORD=xxx SECRET_KEY=yyy ./deploy.sh   # explicit secrets
+#   export DB_PASSWORD=yourpassword
+#   export SECRET_KEY=your-secret-key-minimum-32-characters
+#   export POSTGRES_USER=blackjack          # optional, default: blackjack
+#   export POSTGRES_PASSWORD=yourpassword   # optional, defaults to DB_PASSWORD
+#   export POSTGRES_DB=blackjack            # optional, default: blackjack
+#   ./infra/k8s/deploy.sh
+#
+# Access the app at: http://$(minikube ip):30080
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-NAMESPACE="blackjack"
+APP_NAME="${APP_NAME:-blackjack}"
+NAMESPACE="${NAMESPACE:-blackjack}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "╔══════════════════════════════════════════════╗"
-echo "║   Deploying Blackjack to EKS                ║"
-echo "╚══════════════════════════════════════════════╝"
-echo ""
+# ── Colours ───────────────────────────────────────────────────────────────────
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
+info()    { echo -e "${GREEN}[INFO]${NC} $*"; }
+warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
+error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
-# ── Prerequisites check ──────────────────────────────────────────────────────
-command -v kubectl >/dev/null 2>&1 || { echo "❌ kubectl not found. Install it first."; exit 1; }
-command -v aws >/dev/null 2>&1    || { echo "❌ aws CLI not found. Install it first."; exit 1; }
+# ── Preflight checks ──────────────────────────────────────────────────────────
+info "Checking prerequisites..."
 
-# Verify cluster connectivity
-if ! kubectl cluster-info >/dev/null 2>&1; then
-  echo "❌ Cannot reach Kubernetes cluster. Run:"
-   echo "   aws eks update-kubeconfig --name blackjack-staging --region ap-south-1"
+if ! command -v minikube &>/dev/null; then
+  error "minikube not found. Install it from https://minikube.sigs.k8s.io/docs/start/"
   exit 1
 fi
 
-echo "✅ Connected to cluster: $(kubectl config current-context)"
-echo ""
+if ! minikube status --format='{{.Host}}' 2>/dev/null | grep -q "Running"; then
+  error "Minikube is not running. Start it with:"
+  error "  minikube start --driver=docker --cpus=2 --memory=4g"
+  exit 1
+fi
 
-# ── Gather secrets ───────────────────────────────────────────────────────────
-AWS_REGION="${AWS_REGION:-ap-south-1}"
-APP_NAME="${APP_NAME:-blackjack}"
-ENV="${ENVIRONMENT:-staging}"
+if ! command -v kubectl &>/dev/null; then
+  error "kubectl not found. You can use: minikube kubectl --"
+  exit 1
+fi
 
-if [ -z "${DB_PASSWORD:-}" ] || [ -z "${SECRET_KEY:-}" ]; then
-  echo "🔐 Fetching secrets from SSM Parameter Store..."
-  DB_PASSWORD=$(aws ssm get-parameter \
-    --name "/${APP_NAME}/${ENV}/db_password" \
-    --with-decryption \
-    --query Parameter.Value \
-    --output text \
-    --region "$AWS_REGION")
+info "Minikube is running. Context: $(kubectl config current-context)"
 
-  SECRET_KEY=$(aws ssm get-parameter \
-    --name "/${APP_NAME}/${ENV}/secret_key" \
-    --with-decryption \
-    --query Parameter.Value \
-    --output text \
-    --region "$AWS_REGION")
-
-  echo "   Secrets fetched from SSM."
-else
-  echo "🔐 Using secrets from environment variables."
+# ── Validate required secrets ─────────────────────────────────────────────────
+if [[ -z "${DB_PASSWORD:-}" ]]; then
+  error "DB_PASSWORD is required. Set it with: export DB_PASSWORD=yourpassword"
+  exit 1
+fi
+if [[ -z "${SECRET_KEY:-}" ]]; then
+  error "SECRET_KEY is required (min 32 chars). Set it with: export SECRET_KEY=..."
+  exit 1
 fi
 
 POSTGRES_USER="${POSTGRES_USER:-blackjack}"
-POSTGRES_PASSWORD="${DB_PASSWORD}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-${DB_PASSWORD}}"
 POSTGRES_DB="${POSTGRES_DB:-blackjack}"
 DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
 
-# ── Image tag resolution ─────────────────────────────────────────────────────
-ECR_REPO="${ECR_REPO:-904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application}"
-IMAGE_TAG="${IMAGE_TAG:-latest}"
-echo "🏷️  ECR repo:  $ECR_REPO"
-echo "🏷️  Image tag: $IMAGE_TAG"
+# ── Namespace ─────────────────────────────────────────────────────────────────
+info "Creating namespace..."
+kubectl apply -f "${SCRIPT_DIR}/namespace.yaml"
 
-# ── 1. Namespace ─────────────────────────────────────────────────────────────
-echo ""
-echo "📦 [1/6] Creating namespace..."
-kubectl apply -f "$SCRIPT_DIR/namespace.yaml"
-
-# ── 2. Secrets ───────────────────────────────────────────────────────────────
-echo "🔑 [2/6] Creating Kubernetes secrets..."
-kubectl -n "$NAMESPACE" create secret generic blackjack-secrets \
-  --from-literal=POSTGRES_USER="$POSTGRES_USER" \
-  --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-  --from-literal=POSTGRES_DB="$POSTGRES_DB" \
-  --from-literal=DATABASE_URL="$DATABASE_URL" \
-  --from-literal=SECRET_KEY="$SECRET_KEY" \
+# ── Secrets ───────────────────────────────────────────────────────────────────
+info "Creating Kubernetes secrets..."
+kubectl create secret generic blackjack-secrets \
+  --namespace="${NAMESPACE}" \
+  --from-literal=DATABASE_URL="${DATABASE_URL}" \
+  --from-literal=SECRET_KEY="${SECRET_KEY}" \
+  --from-literal=POSTGRES_USER="${POSTGRES_USER}" \
+  --from-literal=POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
+  --from-literal=POSTGRES_DB="${POSTGRES_DB}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# ── 3. Network Policies ─────────────────────────────────────────────────────
-echo "🛡️  [3/6] Applying network policies..."
-kubectl apply -f "$SCRIPT_DIR/network-policy.yaml"
+# ── Network policies ──────────────────────────────────────────────────────────
+info "Applying network policies..."
+kubectl apply -f "${SCRIPT_DIR}/network-policy.yaml"
 
-# ── 4. PostgreSQL ────────────────────────────────────────────────────────────
-echo "🐘 [4/6] Deploying PostgreSQL..."
-kubectl apply -f "$SCRIPT_DIR/postgres.yaml"
-echo "   Waiting for PostgreSQL to be ready..."
-kubectl -n "$NAMESPACE" rollout status statefulset/postgres --timeout=180s
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+info "Deploying PostgreSQL..."
+kubectl apply -f "${SCRIPT_DIR}/postgres.yaml"
 
-# ── 5. Backend ───────────────────────────────────────────────────────────────
-echo "⚙️  [5/6] Deploying backend..."
-ECR_DEFAULT="904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application"
-sed "s|image: ${ECR_DEFAULT}:backend-.*|image: ${ECR_REPO}:backend-${IMAGE_TAG}|g" \
-  "$SCRIPT_DIR/backend.yaml" | kubectl apply -f -
-kubectl -n "$NAMESPACE" rollout status deployment/backend --timeout=120s
+info "Waiting for PostgreSQL to be ready..."
+kubectl rollout status statefulset/postgres -n "${NAMESPACE}" --timeout=120s
 
-# ── 6. Frontend + NLB ────────────────────────────────────────────────────────
-echo "🌐 [6/6] Deploying frontend (+ NLB provisioning)..."
-sed "s|image: ${ECR_DEFAULT}:frontend-.*|image: ${ECR_REPO}:frontend-${IMAGE_TAG}|g" \
-  "$SCRIPT_DIR/frontend.yaml" | kubectl apply -f -
-kubectl -n "$NAMESPACE" rollout status deployment/frontend --timeout=120s
+# ── Backend ───────────────────────────────────────────────────────────────────
+info "Deploying backend..."
+kubectl apply -f "${SCRIPT_DIR}/backend.yaml"
 
-# ── Wait for LoadBalancer URL ────────────────────────────────────────────────
-echo ""
-echo "⏳ Waiting for NLB external hostname..."
-LB_HOST=""
-for i in $(seq 1 30); do
-  LB_HOST=$(kubectl -n "$NAMESPACE" get svc frontend \
-    -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-  if [ -n "$LB_HOST" ]; then
-    break
-  fi
-  printf "."
-  sleep 10
-done
-echo ""
+info "Waiting for backend to be ready..."
+kubectl rollout status deployment/backend -n "${NAMESPACE}" --timeout=120s
 
-# ── Summary ──────────────────────────────────────────────────────────────────
-echo ""
-echo "╔══════════════════════════════════════════════╗"
-echo "║   Deployment Complete!                       ║"
-echo "╚══════════════════════════════════════════════╝"
-echo ""
+# ── Frontend ──────────────────────────────────────────────────────────────────
+info "Deploying frontend..."
+kubectl apply -f "${SCRIPT_DIR}/frontend.yaml"
 
-if [ -n "$LB_HOST" ]; then
-  echo "🎰 Application URL:  http://$LB_HOST"
-  echo ""
-  echo "   (NLB may take 2-3 minutes to become fully reachable)"
+info "Waiting for frontend to be ready..."
+kubectl rollout status deployment/frontend -n "${NAMESPACE}" --timeout=120s
+
+# ── Optional: HPA + PDB ───────────────────────────────────────────────────────
+if minikube addons list | grep -q "metrics-server: enabled"; then
+  info "Applying HPA (metrics-server detected)..."
+  kubectl apply -f "${SCRIPT_DIR}/hpa.yaml"
 else
-  echo "⚠️  NLB hostname not available yet. Check manually:"
-  echo "   kubectl -n $NAMESPACE get svc frontend"
+  warn "metrics-server not enabled — skipping HPA. Enable with: minikube addons enable metrics-server"
 fi
 
+kubectl apply -f "${SCRIPT_DIR}/pdb.yaml"
+
+# ── Done ──────────────────────────────────────────────────────────────────────
+MINIKUBE_IP=$(minikube ip)
 echo ""
-echo "Useful commands:"
-echo "  kubectl -n $NAMESPACE get pods              # pod status"
-echo "  kubectl -n $NAMESPACE logs deploy/backend   # backend logs"
-echo "  kubectl -n $NAMESPACE logs deploy/frontend  # frontend logs"
-echo "  kubectl -n $NAMESPACE get svc frontend      # NLB hostname"
+info "Deployment complete!"
+echo -e "  ${GREEN}App URL:${NC}    http://${MINIKUBE_IP}:30080"
+echo -e "  ${GREEN}Health:${NC}     http://${MINIKUBE_IP}:30080/health"
+echo -e "  ${GREEN}API docs:${NC}   http://${MINIKUBE_IP}:30080/docs"
 echo ""
+info "Useful commands:"
+echo "  kubectl get pods -n ${NAMESPACE}"
+echo "  kubectl logs -n ${NAMESPACE} -l app=backend -f"
+echo "  kubectl logs -n ${NAMESPACE} -l app=postgres -f"

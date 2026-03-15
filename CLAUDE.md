@@ -45,6 +45,24 @@ Test markers (defined in `backend/pytest.ini`): `unit`, `integration`, `slow`
 cd backend && ruff check . && black --check .
 ```
 
+## Deployment (Minikube)
+
+```bash
+# Start Minikube (one-time)
+minikube start --driver=docker --cpus=2 --memory=4g
+minikube addons enable metrics-server
+
+# Deploy
+export DB_PASSWORD=yourpassword
+export SECRET_KEY=your-32-char-secret-key
+./infra/k8s/deploy.sh
+
+# Access
+open http://$(minikube ip):30080
+```
+
+Images are published to GHCR by CI: `ghcr.io/alexmachulsky/blackjack-application/backend:VERSION`
+
 ## Architecture
 
 **Backend** (`backend/app/`): Routes → Services → Models layering
