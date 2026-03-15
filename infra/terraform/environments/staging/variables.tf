@@ -35,6 +35,12 @@ variable "node_instance_type" {
   default     = "t3.small"
 }
 
+variable "eks_public_access_cidrs" {
+  description = "CIDRs allowed to reach the EKS API server public endpoint. Set to your IP/32 to restrict kubectl access."
+  type        = list(string)
+  default     = ["0.0.0.0/0"] # Override via: TF_VAR_eks_public_access_cidrs='["YOUR_IP/32"]'
+}
+
 # ── Database (runs in-cluster as StatefulSet) ────────────────────────────────
 variable "db_name" {
   description = "PostgreSQL database name"

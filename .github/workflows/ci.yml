@@ -119,7 +119,36 @@ jobs:
         working-directory: frontend
 
   # ─────────────────────────────────────────────────────────────────────────
-  #  JOB 2 — Package
+  #  JOB 2 — Validate Infra
+  #  K8s manifest schema check + Terraform format check.
+  #  Runs in parallel with build — no image needed.
+  #  NOTE: terraform apply is always manual; this job validates syntax only.
+  # ─────────────────────────────────────────────────────────────────────────
+  validate-infra:
+    name: Validate Infra (${{ github.ref_name }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin kubeconform
+
+      - name: Validate K8s manifests
+        run: |
+          kubeconform \
+            -kubernetes-version 1.32.0 \
+            -summary \
+            -output pretty \
+            infra/k8s/*.yaml
+
+      - name: Terraform format check
+        run: terraform fmt -check -recursive infra/terraform
+
+  # ─────────────────────────────────────────────────────────────────────────
+  #  JOB 3 — Package
   #  Build backend + frontend Docker images and cache layers for reuse
   # ─────────────────────────────────────────────────────────────────────────
   package:
@@ -243,7 +272,9 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add infra/k8s/backend.yaml infra/k8s/frontend.yaml
           git commit -m "ci: bump k8s image tags to ${VER} [skip ci]"
-          git push origin main
+          # Push manifest bump to deploy/staging, not main.
+          # main stays clean (app code only); deploy/staging tracks what's deployed.
+          git push --force origin HEAD:deploy/staging
 
   # ─────────────────────────────────────────────────────────────────────────
   #  JOB 4 — E2E Smoke Tests  (main only)
