@@ -76,7 +76,8 @@ spec:
             sizeLimit: 10Mi
 
 ---
-# LoadBalancer Service — creates an AWS NLB automatically
+# NodePort Service — exposes the app on Minikube at port 30080
+# Access via: http://$(minikube ip):30080
 apiVersion: v1
 kind: Service
 metadata:
