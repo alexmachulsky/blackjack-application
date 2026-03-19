@@ -2,11 +2,13 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # deploy.sh — Deploy blackjack to Minikube
 #
-# Prerequisites:
-#   minikube start --driver=docker --cpus=2 --memory=4g
-#   minikube addons enable metrics-server
+# Prerequisites (one-time, per fresh cluster):
+#   1. minikube start --driver=docker --cpus=2 --memory=4g
+#   2. minikube addons enable metrics-server
+#   3. kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/latest/download/controller.yaml
+#   4. Generate infra/k8s/ghcr-pull-secret.yaml — see infra/README.md
 #
-# Usage:
+# Usage (day-to-day):
 #   export DB_PASSWORD=yourpassword
 #   export SECRET_KEY=your-secret-key-minimum-32-characters
 #   export POSTGRES_USER=blackjack          # optional, default: blackjack
@@ -49,6 +51,21 @@ fi
 
 info "Minikube is running. Context: $(kubectl config current-context)"
 
+# ── Sealed Secrets controller check ──────────────────────────────────────────
+if ! kubectl get deployment sealed-secrets-controller -n kube-system &>/dev/null; then
+  error "sealed-secrets controller not found in kube-system."
+  error "Install it with:"
+  error "  kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/latest/download/controller.yaml"
+  error "Then wait ~30s for it to be ready, and re-run this script."
+  exit 1
+fi
+
+if [[ ! -f "${SCRIPT_DIR}/ghcr-pull-secret.yaml" ]]; then
+  error "infra/k8s/ghcr-pull-secret.yaml not found."
+  error "Generate it with kubeseal — see infra/README.md for instructions."
+  exit 1
+fi
+
 # ── Validate required secrets ─────────────────────────────────────────────────
 if [[ -z "${DB_PASSWORD:-}" ]]; then
   error "DB_PASSWORD is required. Set it with: export DB_PASSWORD=yourpassword"
@@ -78,6 +95,10 @@ kubectl create secret generic blackjack-secrets \
   --from-literal=POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
   --from-literal=POSTGRES_DB="${POSTGRES_DB}" \
   --dry-run=client -o yaml | kubectl apply -f -
+
+# ── GHCR pull secret ──────────────────────────────────────────────────────────
+info "Applying GHCR image pull secret..."
+kubectl apply -f "${SCRIPT_DIR}/ghcr-pull-secret.yaml"
 
 # ── Network policies ──────────────────────────────────────────────────────────
 info "Applying network policies..."
