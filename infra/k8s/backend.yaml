@@ -47,7 +47,7 @@ spec:
               done
               echo "PostgreSQL is ready!"
         - name: migrate
-          image: ghcr.io/alexmachulsky/blackjack-application/backend:1.0.34
+          image: ghcr.io/alexmachulsky/blackjack-application/backend:1.0.38
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -67,7 +67,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: backend
-          image: ghcr.io/alexmachulsky/blackjack-application/backend:1.0.34
+          image: ghcr.io/alexmachulsky/blackjack-application/backend:1.0.38
           ports:
             - containerPort: 8000
               name: http
