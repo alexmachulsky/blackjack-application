@@ -1,173 +1,137 @@
-# Infrastructure — AWS EKS (Terraform + Kubernetes)
+# Infrastructure — Minikube (Home Lab)
 
 ## Architecture
 
 ```
-Internet
+Internet (local network)
     │
     ▼
-  NLB (port 80)                         ← auto-created by K8s Service
+  http://$(minikube ip):30080          ← NodePort 30080
     │
     ▼
-  EKS Cluster (blackjack-staging)
+  Minikube cluster (single node)
   ┌──────────────────────────────────┐
-  │  1× t3.small node               │
-  │  ├── frontend  (nginx, 1 pod)   │
-  │  ├── backend   (FastAPI, 1 pod) │
-  │  └── postgres  (StatefulSet)    │
-  │       └── 5 GB EBS gp3 PVC     │
+  │  frontend  (nginx, 1 pod)        │  ← serves React SPA + proxies API
+  │  backend   (FastAPI, 1 pod)      │  ← ClusterIP only
+  │  postgres  (StatefulSet, 1 pod)  │  ← hostPath PVC via standard-retain
   └──────────────────────────────────┘
+       ↑ images pulled from ghcr.io (private)
+       ↑ authenticated via ghcr-pull-secret (SealedSecret)
+```
+
+Images are built and pushed to private GHCR by CI (GitHub Actions) on every merge to main.
+The sealed-secrets controller decrypts the committed SealedSecret at deploy time.
+
+## Prerequisites
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| `minikube` | Local K8s cluster | https://minikube.sigs.k8s.io/docs/start/ |
+| `kubectl` | K8s CLI | `brew install kubectl` |
+| `kubeseal` | Encrypt secrets for Sealed Secrets | `brew install kubeseal` |
+| `make` | Dev convenience commands | pre-installed on macOS/Linux |
+
+## One-time cluster setup
+
+Run these once per fresh Minikube cluster. The cluster survives `minikube stop`/`start` — only `minikube delete` requires repeating these steps.
+
+### 1. Start Minikube
+
+```bash
+minikube start --driver=docker --cpus=2 --memory=4g
+minikube addons enable metrics-server
+```
+
+### 2. Install the sealed-secrets controller
+
+```bash
+kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/latest/download/controller.yaml
+# Wait for it to be ready
+kubectl rollout status deployment/sealed-secrets-controller -n kube-system --timeout=60s
+```
+
+### 3. Generate the GHCR pull secret
+
+Create a GitHub Personal Access Token with `read:packages` scope at https://github.com/settings/tokens.
+
+Then create the namespace and seal the secret:
+
+```bash
+kubectl apply -f infra/k8s/namespace.yaml
+
+kubectl create secret docker-registry ghcr-pull-secret \
+  --docker-server=ghcr.io \
+  --docker-username=alexmachulsky \
+  --docker-password=<YOUR_PAT> \
+  --namespace=blackjack \
+  --dry-run=client -o yaml \
+  | kubeseal -o yaml > infra/k8s/ghcr-pull-secret.yaml
+
+git add infra/k8s/ghcr-pull-secret.yaml
+git commit -m "feat: add sealed GHCR pull secret"
+git push
+```
+
+The PAT is encrypted inside the file — it is safe to commit.
+
+### 4. Set GHCR packages to private
+
+In GitHub: Profile → Packages → select `blackjack-application/backend` → Package settings → Change visibility → Private. Repeat for `frontend`.
+
+## Deploying
+
+```bash
+export DB_PASSWORD=yourpassword
+export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+
+./infra/k8s/deploy.sh
+```
+
+The script will:
+1. Check Minikube is running and the sealed-secrets controller is ready
+2. Create the `blackjack` namespace and app secrets
+3. Apply and unseal the GHCR pull secret
+4. Deploy PostgreSQL, backend, frontend
+5. Apply HPA (if metrics-server is enabled) and PDB
+
+Access the app: `open http://$(minikube ip):30080`
+
+## Day-to-day operations
+
+```bash
+# Re-deploy after CI pushes a new image
+git pull origin deploy/staging   # get updated image tags from CI
+./infra/k8s/deploy.sh
+
+# Watch pods
+kubectl get pods -n blackjack -w
+
+# Backend logs
+kubectl logs -n blackjack -l app=backend -f
+
+# Postgres logs
+kubectl logs -n blackjack -l app=postgres -f
+
+# Stop the cluster (state is preserved)
+minikube stop
+
+# Start the cluster again
+minikube start
 ```
 
 ## Directory structure
 
 ```
 infra/
-├── k8s/                            # Kubernetes manifests
-│   ├── namespace.yaml
-│   ├── network-policy.yaml         # Default-deny + allow rules
-│   ├── postgres.yaml               # StatefulSet + headless Service + gp3 StorageClass
-│   ├── backend.yaml                # Deployment + ClusterIP Service
-│   ├── frontend.yaml               # Deployment + LoadBalancer Service (NLB)
-│   └── deploy.sh                   # One-command deployment script
-└── terraform/
-    ├── modules/
-    │   ├── vpc/                    # VPC, public+private subnets, IGW, NAT GW
-    │   └── eks/                    # EKS cluster, SPOT node group, OIDC, EBS CSI
-    └── environments/
-        └── staging/
-            ├── backend.tf          # S3 remote state + provider config
-            ├── main.tf             # Root module: VPC → EKS
-            ├── variables.tf
-            ├── secrets.tf          # Sensitive vars (db_password, secret_key)
-            ├── outputs.tf
-            └── terraform.tfvars.example
+├── k8s/
+│   ├── namespace.yaml          # blackjack namespace
+│   ├── network-policy.yaml     # default-deny + allow rules
+│   ├── ghcr-pull-secret.yaml   # SealedSecret for GHCR pull auth (encrypted PAT)
+│   ├── postgres.yaml           # StatefulSet + hostPath PVC + headless Service
+│   ├── backend.yaml            # Deployment + ClusterIP Service
+│   ├── frontend.yaml           # Deployment + NodePort 30080
+│   ├── hpa.yaml                # HorizontalPodAutoscaler (requires metrics-server)
+│   ├── pdb.yaml                # PodDisruptionBudget
+│   └── deploy.sh               # One-command deploy script
+└── README.md                   # This file
 ```
-
-## Cost estimate (~730 hrs/month, ap-south-1)
-
-| Resource | Monthly Cost |
-|----------|-------------|
-| EKS control plane | $73.00 |
-| NAT Gateway (hourly + data) | ~$33.00 |
-| NLB | ~$18.00 |
-| EC2 t3.small SPOT (1 node) | ~$5.00 |
-| EBS gp3 5 GB (PostgreSQL) | ~$0.40 |
-| **Total** | **~$130/month** |
-
-> **Cost-saving tips**:
-> - **Stop nodes when idle**: Scale the node group to 0 to reduce to ~$106/month (control plane + NAT + NLB):
->   ```bash
->   aws eks update-nodegroup-config \
->     --cluster-name blackjack-staging \
->     --nodegroup-name blackjack-staging-nodes \
->     --scaling-config minSize=0,maxSize=2,desiredSize=0 \
->     --region ap-south-1
->   ```
->   Scale back up with `desiredSize=1`.
-> - **NAT Gateway** is the second-largest cost (~$33/month). For a personal project, consider replacing it with [fck-nat](https://fck-nat.dev/) on a t4g.nano (~$3/month) to save ~$30/month.
-
-## Prerequisites
-
-| Tool | Version | Install |
-|------|---------|---------|
-| Terraform | >= 1.7 | `brew install terraform` |
-| AWS CLI | >= 2.x | `brew install awscli` |
-| kubectl | >= 1.28 | `brew install kubectl` |
-| AWS account | IAM user with AdministratorAccess | — |
-
-## One-time bootstrap (remote state)
-
-```bash
-# 1. Create S3 bucket for Terraform state
-aws s3api create-bucket --bucket blackjack-tf-state --region ap-south-1 \
-  --create-bucket-configuration LocationConstraint=ap-south-1
-
-aws s3api put-bucket-versioning \
-  --bucket blackjack-tf-state \
-  --versioning-configuration Status=Enabled
-
-aws s3api put-bucket-encryption \
-  --bucket blackjack-tf-state \
-  --server-side-encryption-configuration \
-    '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
-
-# 2. Create DynamoDB table for state locking
-aws dynamodb create-table \
-  --table-name terraform-lock \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region ap-south-1
-```
-
-## Deploying
-
-### Step 1 — Provision infrastructure (~15 minutes)
-
-```bash
-cd infra/terraform/environments/staging
-
-# Copy and edit the example vars file
-cp terraform.tfvars.example terraform.tfvars
-
-# Set secrets as environment variables (never put in tfvars file)
-export TF_VAR_db_password="$(openssl rand -base64 24)"
-export TF_VAR_app_secret_key="$(openssl rand -hex 32)"
-
-# Provision EKS cluster + VPC
-terraform init
-terraform plan -out=staging.tfplan
-terraform apply staging.tfplan
-```
-
-### Step 2 — Configure kubectl
-
-```bash
-aws eks update-kubeconfig --name blackjack-staging --region ap-south-1
-
-# Verify connectivity
-kubectl get nodes
-```
-
-### Step 3 — Deploy application (~2 minutes)
-
-```bash
-cd infra/k8s
-./deploy.sh
-```
-
-The script will:
-1. Create the `blackjack` namespace
-2. Fetch secrets from SSM Parameter Store and create K8s Secrets
-3. Deploy PostgreSQL (StatefulSet with 5 GB EBS volume)
-4. Deploy backend (FastAPI) with init container waiting for PostgreSQL
-5. Deploy frontend (Nginx) with NLB
-6. Print the application URL
-
-### Updating the application
-
-After pushing new images via CI/CD:
-
-```bash
-# Update backend image
-kubectl -n blackjack set image deployment/backend \
-  backend=904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:backend-1.0.1
-
-# Update frontend image
-kubectl -n blackjack set image deployment/frontend \
-  frontend=904233124111.dkr.ecr.ap-south-1.amazonaws.com/blackjack-application:frontend-1.0.1
-```
-
-## Tearing down
-
-```bash
-# Delete K8s resources first (removes NLB)
-kubectl delete namespace blackjack
-
-# Then destroy Terraform resources
-cd infra/terraform/environments/staging
-terraform destroy
-```
-
-This removes all resources **except** the S3 state bucket and DynamoDB lock table (managed manually).
