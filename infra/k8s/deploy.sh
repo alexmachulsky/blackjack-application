@@ -56,7 +56,14 @@ if ! kubectl get deployment sealed-secrets-controller -n kube-system &>/dev/null
   error "sealed-secrets controller not found in kube-system."
   error "Install it with:"
   error "  kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/latest/download/controller.yaml"
-  error "Then wait ~30s for it to be ready, and re-run this script."
+  error "Then wait for it to be ready and re-run this script."
+  exit 1
+fi
+
+if ! kubectl rollout status deployment/sealed-secrets-controller \
+     -n kube-system --timeout=60s &>/dev/null; then
+  error "sealed-secrets controller is not Ready (may still be starting)."
+  error "Wait with: kubectl rollout status deployment/sealed-secrets-controller -n kube-system"
   exit 1
 fi
 
@@ -99,6 +106,13 @@ kubectl create secret generic blackjack-secrets \
 # ── GHCR pull secret ──────────────────────────────────────────────────────────
 info "Applying GHCR image pull secret..."
 kubectl apply -f "${SCRIPT_DIR}/ghcr-pull-secret.yaml"
+
+info "Waiting for pull secret to be unsealed by controller..."
+if ! kubectl wait secret/ghcr-pull-secret \
+     -n "${NAMESPACE}" --for=jsonpath='{.type}'=kubernetes.io/dockerconfigjson \
+     --timeout=30s 2>/dev/null; then
+  warn "Pull secret not yet visible after 30s — proceeding, but watch for ImagePullBackOff"
+fi
 
 # ── Network policies ──────────────────────────────────────────────────────────
 info "Applying network policies..."
