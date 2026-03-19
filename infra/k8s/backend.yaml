@@ -21,6 +21,8 @@ spec:
       labels:
         app: backend
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       # Pod-level security: no privilege escalation, non-root
       securityContext:
         runAsNonRoot: true
