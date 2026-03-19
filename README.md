@@ -28,38 +28,41 @@ PostgreSQL
 - Clean UI
 
 **Infrastructure:**
-- Docker
-- Docker Compose
+- Docker + Docker Compose (local development)
+- Kubernetes on Minikube (home lab deployment)
+- GitHub Actions CI (lint, test, security scan, publish)
+- GitHub Container Registry (GHCR) — private image hosting
+- Sealed Secrets (encrypted GHCR pull credentials in-repo)
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Local development (Docker Compose)
 
-- Docker
-- Docker Compose
-
-### Running the Application
-
-1. **Clone the repository**
 ```bash
-cd blackjack-app
+cp .env.example .env   # set a secure SECRET_KEY
+make dev               # starts backend + frontend + postgres with hot-reload
 ```
 
-2. **Create environment file**
-```bash
-cp .env.example .env
-# Edit .env and set a secure SECRET_KEY
-```
-
-3. **Build and run with Docker Compose**
-```bash
-docker compose up --build
-```
-
-4. **Access the application**
 - Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
+- API docs: http://localhost:8000/docs
+
+### Home lab deployment (Minikube)
+
+See [infra/README.md](infra/README.md) for the full guide. Short version:
+
+```bash
+# One-time cluster setup
+minikube start --driver=docker --cpus=2 --memory=4g
+kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/latest/download/controller.yaml
+# Generate infra/k8s/ghcr-pull-secret.yaml with kubeseal — see infra/README.md
+
+# Deploy
+export DB_PASSWORD=yourpassword
+export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+./infra/k8s/deploy.sh
+
+open http://$(minikube ip):30080
+```
 
 ## 🎮 How to Play
 
@@ -80,20 +83,17 @@ docker compose up --build
 ## 🧪 Running Tests
 
 ```bash
-# Enter backend container
-docker compose exec backend bash
+make test           # all tests
+make test-coverage  # with coverage report
 
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=app tests/
-
-# Run specific test file
-pytest tests/test_game_engine.py -v
+# Single test
+docker compose run --rm -u root backend \
+  sh -c "pip install -r requirements-dev.txt -q && pytest tests/test_game_engine.py::test_player_hit -v"
 ```
 
 ## 📚 API Endpoints
+
+Routes are available at `/api/v1/{auth,game,stats}` (canonical) and `/{auth,game,stats}` (backward-compat).
 
 ### Authentication
 - `POST /auth/register` - Register new user
@@ -104,14 +104,16 @@ pytest tests/test_game_engine.py -v
 - `POST /game/start` - Start new game
 - `POST /game/hit` - Hit (draw card)
 - `POST /game/stand` - Stand (dealer plays)
+- `POST /game/split` - Split matching cards
 - `GET /game/{game_id}` - Get game state
 
 ### Statistics
 - `GET /stats` - Get player statistics
 
 ### Health
-- `GET /health` - Health check endpoint
-- `GET /ready` - Readiness check (includes database connectivity)
+- `GET /health` - Health check
+- `GET /ready` - Readiness check (includes DB connectivity)
+- `GET /metrics` - Prometheus metrics
 
 ## 🗄 Database Schema
 
@@ -168,27 +170,17 @@ docker compose logs -f backend
 
 ## 🛠 Development
 
-### Backend Development
-
 ```bash
-# Install dependencies
-cd backend
-pip install -r requirements.txt
-
-# Run locally (requires PostgreSQL)
-uvicorn app.main:app --reload
+make dev       # start everything with hot-reload
+make test      # run backend tests
+make lint      # ruff + black check
+make format    # auto-format with black
+make migrate   # apply Alembic migrations
+make migration # generate a new migration
+make logs      # tail backend logs
 ```
 
-### Frontend Development
-
-```bash
-# Install dependencies
-cd frontend
-npm install
-
-# Run dev server
-npm run dev
-```
+See [CLAUDE.md](CLAUDE.md) for the full command reference.
 
 ## 🧹 Project Structure
 
@@ -218,21 +210,19 @@ blackjack/
 
 ## 🎯 Core Features
 
-✅ User registration and authentication  
-✅ JWT-based session management  
-✅ Full blackjack game logic  
-✅ Betting system with bankroll  
-✅ Win/lose/push detection  
-✅ Player statistics tracking  
-✅ Structured logging  
-✅ Comprehensive tests  
-✅ Docker containerization  
-✅ Clean architecture  
-
-## 🚧 Future Phases
-
-- Phase 2: CI/CD pipeline, image scanning, registry
-- Phase 3: Cloud deployment, Kubernetes, monitoring
+✅ User registration and authentication
+✅ JWT-based session management
+✅ Full blackjack game logic (hit, stand, split, blackjack)
+✅ Betting system with bankroll and daily bonus
+✅ Win/lose/push detection
+✅ Player statistics tracking
+✅ Card deal animations
+✅ Structured JSON logging + Prometheus metrics
+✅ Comprehensive tests (unit, integration, E2E)
+✅ Docker Compose (dev) + Minikube/Kubernetes (home lab)
+✅ GitHub Actions CI — lint, test, Trivy scan, publish to GHCR
+✅ Sealed Secrets for private registry auth
+✅ Clean architecture (routes → services → models)
 
 ## 📖 API Documentation
 
