@@ -126,7 +126,7 @@ infra/
 ├── k8s/
 │   ├── namespace.yaml          # blackjack namespace
 │   ├── network-policy.yaml     # default-deny + allow rules
-│   ├── ghcr-pull-secret.yaml   # SealedSecret for GHCR pull auth (encrypted PAT)
+│   ├── ghcr-pull-secret.yaml   # SealedSecret for GHCR pull auth — generated during setup, not in repo
 │   ├── postgres.yaml           # StatefulSet + hostPath PVC + headless Service
 │   ├── backend.yaml            # Deployment + ClusterIP Service
 │   ├── frontend.yaml           # Deployment + NodePort 30080
