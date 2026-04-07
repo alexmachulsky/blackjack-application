@@ -2,7 +2,7 @@
 # Dev/test deps are in requirements-dev.txt
 fastapi==0.131.0
 uvicorn[standard]==0.41.0
-sqlalchemy==2.0.25
+sqlalchemy==2.0.49
 psycopg2-binary==2.9.9
 pydantic==2.12.5
 pydantic-settings==2.13.1
