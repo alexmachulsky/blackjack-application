@@ -69,7 +69,7 @@ jobs:
         working-directory: backend
 
       - name: Filesystem vulnerability scan (Trivy)
-        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        uses: aquasecurity/trivy-action@128d9a8815401077119ad09f6ca1892d422c387b # v0.34.1
         with:
           scan-type: fs
           scan-ref: .
